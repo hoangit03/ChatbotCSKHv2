@@ -17,12 +17,14 @@ log = get_logger(__name__)
 TOOL_DECISION_PROMPT = """Bạn là trợ lý điều phối công cụ Sales bất động sản.
 Câu hỏi của khách hàng: {query}
 Bạn có các công cụ sau:
-- "check_availability": Gọi khi khách hỏi tình trạng trống của một căn cụ thể (vd: "căn A102 còn không?").
-- "get_inventory": Gọi khi khách hỏi xem còn căn nào trống, tồn kho, bảng giá các căn.
+- "check_availability": Gọi khi khách hỏi tình trạng trống của một căn CỤ THỂ (vd: "căn A102 còn không?").
+- "get_inventory": Gọi khi khách hỏi thông tin chung về tồn kho (tổng số căn, bao nhiêu căn trống).
+- "search_units": Gọi khi khách muốn tìm kiếm danh sách các căn theo các tiêu chí (vd: tầng 8, 2 phòng ngủ, hướng đông, dưới 3 tỷ, ...).
+- "get_payment_policy": Gọi khi khách hỏi về chính sách thanh toán, vay vốn, trả góp.
 - "booking_intent": Gọi khi khách có ý định đặt cọc, giữ chỗ, muốn mua.
 
-Dựa vào câu hỏi, hãy quyết định xem cần gọi công cụ nào. 
-Bạn PHẢI trả về duy nhất một mảng JSON các tên công cụ cần gọi (ví dụ: ["check_availability"]). 
+Dựa vào câu hỏi, hãy quyết định xem cần gọi công cụ nào (có thể chọn nhiều). 
+Bạn PHẢI trả về duy nhất một mảng JSON các tên công cụ cần gọi (ví dụ: ["search_units", "get_inventory"]). 
 Trả về [] nếu không cần công cụ nào. Không kèm text hay markdown nào khác.
 """
 
@@ -58,14 +60,36 @@ class SalesNode:
             )
             content = resp.content.strip()
             import re
-            match = re.search(r'\[.*\]', content, re.DOTALL)
+            
+            # Remove markdown
+            clean_content = re.sub(r'^```(?:json)?\n', '', content)
+            clean_content = re.sub(r'\n```$', '', clean_content)
+            clean_content = clean_content.strip()
+
+            match = re.search(r'\[.*\]', clean_content, re.DOTALL)
             if match:
                 json_str = match.group(0)
                 tools_to_run = json.loads(json_str)
             else:
                 tools_to_run = []
+                
             if not isinstance(tools_to_run, list):
                 tools_to_run = []
+                
+            if not tools_to_run:
+                # Fallback string matching
+                cl = content.lower()
+                if "check_availability" in cl:
+                    tools_to_run.append("check_availability")
+                if "get_inventory" in cl:
+                    tools_to_run.append("get_inventory")
+                if "booking_intent" in cl:
+                    tools_to_run.append("booking_intent")
+                if "search_units" in cl:
+                    tools_to_run.append("search_units")
+                if "get_payment_policy" in cl:
+                    tools_to_run.append("get_payment_policy")
+                    
         except Exception as e:
             log.error("sales_tool_decision_failed", error=str(e))
             # Fallback behavior

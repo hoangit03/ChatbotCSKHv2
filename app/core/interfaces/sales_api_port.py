@@ -31,6 +31,12 @@ class UnitAvailability:
     status: str           # "available" | "reserved" | "sold"
     price_vnd: float
     price_per_m2: float
+    direction: Optional[str] = None
+    carpet_area: Optional[float] = None
+    maintenance_fee: Optional[float] = None
+    total_price: Optional[float] = None
+    sale_program: Optional[str] = None
+    type: Optional[str] = None
 
 
 @dataclass
@@ -91,8 +97,13 @@ class SalesAPIPort(ABC):
         self,
         project: str,
         bedrooms: Optional[int] = None,
+        min_price_vnd: Optional[float] = None,
         max_price_vnd: Optional[float] = None,
         min_area_m2: Optional[float] = None,
+        max_area_m2: Optional[float] = None,
+        direction: Optional[str] = None,
+        floor: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> list[UnitAvailability]:
         """Tìm căn hộ theo tiêu chí."""
         ...
