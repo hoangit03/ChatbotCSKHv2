@@ -5,7 +5,6 @@ from __future__ import annotations
 import io, re
 from app.core.interfaces.parser_port import ParsedChunk, ParsedDocument, ParserPort
 
-
 class DocxParser(ParserPort):
 
     @property
@@ -15,49 +14,51 @@ class DocxParser(ParserPort):
     async def parse(self, content: bytes, file_name: str) -> ParsedDocument:
         from docx import Document
         doc = Document(io.BytesIO(content))
+        
         parts: list[str] = []
         tables: list[list[list[str]]] = []
 
-        for block in doc.element.body:
-            tag = block.tag.split("}")[-1]
-            if tag == "p":
-                text = "".join(
-                    r.text for r in block.iterchildren() if r.tag.endswith("}r")
-                ).strip()
-                if text:
-                    parts.append(text)
-            elif tag == "tbl":
-                tbl: list[list[str]] = []
-                for row in block.iterchildren():
-                    if not row.tag.endswith("}tr"):
-                        continue
-                    cells = [
-                        "".join(t.text or "" for t in cell.itertext())
-                        for cell in row.iterchildren() if cell.tag.endswith("}tc")
-                    ]
-                    tbl.append(cells)
-                if tbl:
-                    tables.append(tbl)
-                    parts.append(_tbl_to_text(tbl))
+        # 1. Đọc paragraphs chuẩn (bao gồm cả nội dung trong các khối thông thường)
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                parts.append(text)
 
-        full = "\n".join(parts)
+        # 2. Đọc tables
+        for table in doc.tables:
+            tbl_data: list[list[str]] = []
+            for row in table.rows:
+                row_data = [cell.text.strip() for cell in row.cells]
+                tbl_data.append(row_data)
+            
+            if tbl_data:
+                tables.append(tbl_data)
+                parts.append(self._tbl_to_text(tbl_data))
+
+        full_text = "\n\n".join(parts)
+        
+        if not full_text.strip():
+            # Fallback: Nếu cách đọc trên không ra text, thử đọc thô xml (cho các trường hợp đặc biệt)
+            full_text = self._fallback_parse(doc)
+
         return ParsedDocument(
             file_name=file_name,
             file_type="docx",
-            chunks=[ParsedChunk(page=1, text=_clean(full), tables=tables)],
+            chunks=[ParsedChunk(page=1, text=full_text, tables=tables)],
         )
 
+    def _tbl_to_text(self, rows: list[list[str]]) -> str:
+        if not rows: return ""
+        header = rows[0]
+        lines = []
+        for row in rows[1:]:
+            line = " | ".join(f"{h}: {v}" for h, v in zip(header, row) if v.strip())
+            if line: lines.append(line)
+        return "\n".join(lines)
 
-def _tbl_to_text(rows: list[list[str]]) -> str:
-    if not rows:
-        return ""
-    header = rows[0]
-    lines = [
-        " | ".join(f"{h}: {v}" for h, v in zip(header, row) if h.strip() and v.strip())
-        for row in rows[1:]
-    ]
-    return "\n".join(l for l in lines if l)
-
-
-def _clean(t: str) -> str:
-    return re.sub(r"\s+", " ", t).strip()
+    def _fallback_parse(self, doc) -> str:
+        """Đọc thô xml nếu các methods trên không lấy được text."""
+        parts = []
+        for p in doc.element.xpath('//w:t'):
+            if p.text: parts.append(p.text)
+        return " ".join(parts)
