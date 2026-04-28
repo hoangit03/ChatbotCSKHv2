@@ -16,7 +16,7 @@ services:
     container_name: rag_api
     env_file: .env                       # load toàn bộ config từ .env
     ports: 
-      - "${APP_PORT:-8000}:8000"
+      - "127.0.0.1:${APP_PORT:-8001}:8000"
     volumes:
       - doc_storage:/app/storage/documents   # file tài liệu persistent
     depends_on:
