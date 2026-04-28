@@ -15,8 +15,8 @@ services:
       target: runtime
     container_name: rag_api
     env_file: .env                       # load toàn bộ config từ .env
-    ports: 
-      - "127.0.0.1:${APP_PORT:-8001}:8000"
+    ports:
+      - "${APP_PORT:-8001}:8000"
     volumes:
       - doc_storage:/app/storage/documents   # file tài liệu persistent
     depends_on:
@@ -103,8 +103,6 @@ services:
       --appendfsync everysec
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     restart: unless-stopped
     networks:
       - rag_internal
