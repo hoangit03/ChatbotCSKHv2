@@ -29,6 +29,7 @@ services:
     restart: unless-stopped
     networks:
       - rag_internal
+      - global_proxy_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -131,3 +132,5 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
+  global_proxy_network:
+    external: true
