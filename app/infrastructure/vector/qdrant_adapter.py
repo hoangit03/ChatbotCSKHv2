@@ -230,3 +230,31 @@ class QdrantAdapter(VectorPort):
             log.info("qdrant_deleted", collection=self._collection, document_code=document_code)
         except Exception as e:
             raise VectorDBError(f"delete failed: {e}") from e
+
+    async def list_unique_projects(self) -> list[str]:
+        """
+        Lấy danh sách unique project_name bằng cách scroll payload.
+        Tối ưu cho quy mô ~100-200 dự án.
+        """
+        try:
+            client = self._get_client()
+            projects = set()
+            
+            # Quét 500 điểm gần nhất để lấy tên dự án (đủ cho quy mô 100+ dự án)
+            points, _ = await client.scroll(
+                collection_name=self._collection,
+                limit=500,
+                with_payload=["project_name"],
+                with_vectors=False,
+            )
+            
+            for p in points:
+                name = p.payload.get("project_name")
+                if name:
+                    projects.add(name)
+            
+            return sorted(list(projects))
+        except Exception as e:
+            log.error("qdrant_list_projects_failed", error=str(e))
+            return []
+

@@ -97,26 +97,22 @@ async def lifespan(app: FastAPI):
     )
     app.state.sales_api = sales_api
 
-    # ── 7. Q&A Vector Store (collection riêng: "qa_pairs") ────────
-    # Tách hoàn toàn với realestate_kb → scale độc lập, không ảnh hưởng nhau
+    # ── 7. Q&A Store (Gộp chung vào knowledge collection) ────────
     from app.agent.tools.qa_tool import QAVectorStore
-    qa_vector_db = QdrantAdapter(
-        url=cfg.qdrant_url,
-        api_key=cfg.qdrant_api_key,
-        collection=cfg.qa_qdrant_collection,
-    )
-    await qa_vector_db.ensure_collection(dimension=cfg.embedding_dimension)
     qa_store = QAVectorStore(
-        vector_db=qa_vector_db,
+        vector_db=vector_db,
         embedder=embedder,
         threshold=cfg.qa_score_threshold,
     )
     app.state.qa_store = qa_store
 
-    # ── 8. Tool Registry (OCP: thêm tool = register(), không sửa gì) ──
+    # ── 8. Tool Registry (Inject vdb để hỗ trợ Project Guard) ─────
     from app.agent.tools.base_tool import ToolRegistry
     from app.agent.tools.qa_tool import QATool
     from app.agent.tools.rag_tool import RAGTool
+    # ...
+    registry = ToolRegistry(vdb=vector_db)
+
     from app.agent.tools.sales_tool import (
         AvailabilityTool,
         BookingIntentTool,
@@ -125,8 +121,8 @@ async def lifespan(app: FastAPI):
         UnitSearchTool,
     )
 
-    registry = ToolRegistry()
-    registry.register(QATool(store=qa_store))   # threshold đã cấu hình trong QAVectorStore
+    registry.register(QATool(store=qa_store))
+   # threshold đã cấu hình trong QAVectorStore
     registry.register(RAGTool(
         vector_db=vector_db,
         embedder=embedder,
@@ -176,43 +172,9 @@ async def lifespan(app: FastAPI):
     import_qa_uc = ImportQAUseCase(qa_store=qa_store)
     app.state.import_qa_uc  = import_qa_uc
 
-    # ── 10.5. Auto-load Q&A Excel khi khởi động ───────────────────────────
-    # Đặt QA_AUTOLOAD_FILE=./data/your_qa.xlsx trong .env để kích hoạt
-    if cfg.qa_autoload_file:
-        from pathlib import Path
-        from app.application.usecases.import_qa import ImportQARequest
-        _qa_path = Path(cfg.qa_autoload_file)
-        if _qa_path.exists():
-            try:
-                _qa_result = await import_qa_uc.execute(
-                    ImportQARequest(
-                        file_bytes=_qa_path.read_bytes(),
-                        file_name=_qa_path.name,
-                        project_name=cfg.qa_autoload_project,
-                    )
-                )
-                log.info(
-                    "qa_autoload_done",
-                    file=cfg.qa_autoload_file,
-                    project=cfg.qa_autoload_project,
-                    imported=_qa_result.imported,
-                    skipped=_qa_result.skipped,
-                    errors=len(_qa_result.errors),
-                )
-                if _qa_result.errors:
-                    for err in _qa_result.errors[:5]:
-                        log.warning("qa_autoload_row_error", detail=err)
-            except Exception as _e:
-                log.error("qa_autoload_failed", error=str(_e))
-        else:
-            log.warning(
-                "qa_autoload_file_not_found",
-                path=cfg.qa_autoload_file,
-                note="Kiểm tra đường dẫn trong QA_AUTOLOAD_FILE",
-            )
-
-
     # ── 11. API Key Store ─────────────────────────────────────────
+
+
     api_key_store = APIKeyStore()
     if not cfg.is_production:
         api_key_store.register(

@@ -50,46 +50,43 @@ def build_agent_graph(
     Factory function — build và compile LangGraph.
     DIP: nhận interface, không import implementation cụ thể.
     """
+    from app.agent.nodes.project_guard import project_guard_node
+    
     support_node = SupportNode(tool_registry)
     sales_node = SalesNode(tool_registry)
     synthesizer = SynthesizerNode(llm)
 
-    # Guard: max iterations
-    async def guarded_support(state: AgentState) -> AgentState:
-        if state.get("iteration", 0) >= max_iterations:
-            state["fallback"] = True
-            state["fallback_reason"] = "Max iterations reached"
-            state["final_answer"] = (
-                "Xin lỗi, tôi cần thêm thông tin để trả lời câu hỏi này. "
-                "Vui lòng liên hệ Sales để được hỗ trợ."
-            )
-            return state
-        return await support_node(state)
+    # ── Helpers cho Guard Node ────────────────────────────────────
+    async def wrapped_guard(state: AgentState) -> AgentState:
+        return await project_guard_node(state, tool_registry)
 
-    async def guarded_sales(state: AgentState) -> AgentState:
-        if state.get("iteration", 0) >= max_iterations:
-            state["fallback"] = True
-            state["final_answer"] = "Vui lòng liên hệ Sales để biết thêm chi tiết."
-            return state
-        return await sales_node(state)
+    def route_after_guard(state: AgentState) -> str:
+        # Nếu Guard đã ra quyết định dừng (set final_answer), kết thúc ngay
+        if state.get("final_answer"):
+            return "end"
+        # Ngược lại, đi theo intent đã phân loại
+        return route_by_intent(state)
 
     # Build graph
     builder = StateGraph(AgentState)
 
     builder.add_node("classify_intent", classify_intent)
-    builder.add_node("support_node", guarded_support)
-    builder.add_node("sales_node", guarded_sales)
+    builder.add_node("project_guard", wrapped_guard)
+    builder.add_node("support_node", support_node)
+    builder.add_node("sales_node", sales_node)
     builder.add_node("synthesizer", synthesizer)
 
     # Edges
     builder.add_edge(START, "classify_intent")
+    builder.add_edge("classify_intent", "project_guard")
 
     builder.add_conditional_edges(
-        "classify_intent",
-        route_by_intent,
+        "project_guard",
+        route_after_guard,
         {
             "support_node": "support_node",
             "sales_node": "sales_node",
+            "end": END
         },
     )
 
@@ -99,4 +96,4 @@ def build_agent_graph(
 
     compiled = builder.compile()
     log.info("agent_graph_compiled", max_iterations=max_iterations)
-    return compiled
+    return compiled

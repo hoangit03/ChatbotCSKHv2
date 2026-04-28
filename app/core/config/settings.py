@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # ── Vector DB ─────────────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
+    # Tên collection dùng chung cho cả Tài liệu và Q&A (Enterprise style)
     qdrant_collection: str = "realestate_kb"
-    qa_qdrant_collection: str = "qa_pairs"   # collection riêng cho Q&A — tách data
 
     # ── Database ──────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragdb"
@@ -85,11 +85,13 @@ class Settings(BaseSettings):
     rag_score_threshold: float = 0.70
     qa_score_threshold: float = 0.30   # multi-signal scoring (0.30 thay vì 0.45 của Jaccard)
 
-    # ── Q&A Auto-load (dev/staging) ───────────────────────────────
-    # Đường dẫn tới file Excel Q&A load khi khởi động (bỏ trống để bỏ qua)
-    qa_autoload_file: str = ""
-    # Tên project gán cho các Q&A item được load tự động
-    qa_autoload_project: str = "default"
+    # ── Q&A Auto-load (DEPRECATED - Moved to API) ─────────────────
+    # Prompt gợi ý dự án khi chưa xác định được
+    project_suggestion_prompt: str = (
+        "Chào bạn! Để em hỗ trợ mình thông tin chính xác nhất về bảng giá và pháp lý, "
+        "mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
+        "Hiện em có thông tin chi tiết về các dự án: {projects}."
+    )
 
     # ── Sales API toggle ──────────────────────────────────────────
     # False = bỏ qua toàn bộ Sales tools (khi chưa có API backend)

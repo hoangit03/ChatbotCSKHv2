@@ -45,17 +45,13 @@ class RAGTool(AgentTool):
         query = state["raw_query"]
         project = state.get("project_name")
 
-        # Nếu project rỗng hoặc là placeholder, bỏ qua filter dự án để tìm rộng hơn
-        search_project = project
-        if not project or project.lower() in ["string", "", "none", "default"]:
-            search_project = None
-
         query_vec = await self._embed.embed_one(query)
         results = await self._vdb.search(
             vector=query_vec,
             top_k=self._top_k,
-            filter=SearchFilter(project_name=search_project, status="active"),
+            filter=SearchFilter(project_name=project, status="active"),
         )
+
 
 
         relevant = [r for r in results if r.score >= self._threshold]

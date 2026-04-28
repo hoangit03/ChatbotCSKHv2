@@ -92,19 +92,13 @@ class QAVectorStore:
         """
         Semantic search trong Qdrant qa_pairs collection.
         Trả danh sách QAItem đã vượt ngưỡng cosine similarity, kèm score.
-        # Nếu project rỗng hoặc là placeholder từ Swagger, bỏ qua filter dự án để tìm rộng hơn"""
-        search_project = project
-        if not project or project.lower() in ["string", "", "none", "default"]:
-            search_project = None
-
+        """
         vec = await self._embed.embed_one(query)
         results = await self._vdb.search(
-
             vector=vec,
             top_k=top_k + 2,        # lấy dư để lọc threshold
-            filter=SearchFilter(project_name=search_project, status="active"),
+            filter=SearchFilter(project_name=project, status="active"),
         )
-
 
         items: list[QAItem] = []
         for r in results:
@@ -154,8 +148,9 @@ class QAVectorStore:
                     "doc_group":     i.doc_group or "",
                     "text":          i.question,   # compat với SearchResult.text
                     "document_code": i.project_name,   # dùng cho delete_by_document
-                    "type":          "qa",
+                    "source_type":   "qa",
                 },
+
             )
             for i, v in zip(items, vectors)
         ]
