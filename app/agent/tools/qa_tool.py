@@ -1,32 +1,45 @@
 """
 app/agent/tools/qa_tool.py
 
-Tool: Tra cứu bộ Q&A chuẩn (import từ Excel).
-Ưu tiên gọi trước RAG — nhanh hơn và chính xác nhất.
+Tool: Tra cứu bộ Q&A chuẩn (import từ Excel) qua Qdrant semantic search.
+Ưu tiên gọi trước RAG — nhanh và chính xác nhất.
 
-Thuật toán tìm kiếm (v2 — thay Jaccard bằng multi-signal scoring):
-  1. Exact match (sau normalize)         → score = 1.0
-  2. Keyword match (từ cột keywords)     → bonus score
-  3. Token overlap (bi-gram + unigram)   → partial score
-  4. Prefix/substring match              → partial score
-  Kết hợp cả 4 tín hiệu → lấy score cao nhất.
+Kiến trúc v4 (RAG-style):
+  - QAVectorStore: lưu Q&A vào Qdrant collection riêng ("qa_pairs")
+    Tách hoàn toàn với document collection ("realestate_kb")
+  - Scale: Qdrant xử lý triệu Q&A pairs, persist qua restart
+  - Upsert idempotent: deterministic UUID từ (project, question)
+    → Import nhiều file / re-import không duplicate
+
+  Luồng khi có Q&A hit (RAG-style v4):
+    embed(query) → Qdrant search qa_pairs → score ≥ threshold
+    → inject vào state["rag_results"] như context chunk ưu tiên cao nhất
+    → SynthesizerNode nhận context → LLM tổng hợp → trả lời tự nhiên
+    (không skip LLM — câu trả lời tự nhiên hơn, có thể combine với doc RAG)
 """
 from __future__ import annotations
 
-import re
-import unicodedata
+import hashlib
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.agent.state.agent_state import AgentState
+from app.agent.state.agent_state import AgentState, SourceRef
 from app.agent.tools.base_tool import AgentTool, ToolResult
+from app.core.interfaces.llm_port import EmbedPort
+from app.core.interfaces.vector_port import SearchFilter, VectorPoint, VectorPort
 from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────
+# Domain model
+# ─────────────────────────────────────────────────────────────────
+
 @dataclass
 class QAItem:
+    """Một cặp Q&A chuẩn, map 1-1 với 1 row trong Qdrant qa_pairs."""
     id: str
     project_name: str
     question: str
@@ -34,65 +47,195 @@ class QAItem:
     keywords: list[str] = field(default_factory=list)
     doc_group: Optional[str] = None
     is_active: bool = True
+    score: float = 0.0          # similarity score từ vector search
+
+    @staticmethod
+    def make_id(project_name: str, question: str) -> str:
+        """Deterministic UUID từ (project, question) — upsert idempotent."""
+        key = f"{project_name}::{question.strip().lower()}"
+        return str(uuid.UUID(hashlib.md5(key.encode("utf-8")).hexdigest()))
 
 
-class QAStore:
-    """In-memory Q&A store. Production: thay bằng PostgreSQL + full-text search."""
+# ─────────────────────────────────────────────────────────────────
+# QAVectorStore — Qdrant-backed, dedicated "qa_pairs" collection
+# ─────────────────────────────────────────────────────────────────
 
-    def __init__(self) -> None:
-        self._items: dict[str, QAItem] = {}
+class QAVectorStore:
+    """
+    Q&A store backed by Qdrant dedicated collection.
 
-    def add(self, item: QAItem) -> None:
-        self._items[item.id] = item
+    Design principles:
+    - Collection "qa_pairs" tách hoàn toàn với "realestate_kb" (document RAG)
+    - Upsert idempotent: deterministic UUID từ (project, question)
+      → Import cùng file nhiều lần / nhiều file khác nhau → không duplicate
+    - Batch embed: 1 API call cho toàn bộ batch (tiết kiệm chi phí embedding)
+    - Scale: Qdrant xử lý triệu Q&A pairs, không tốn RAM server
+    - Scroll API: list_by_project không cần vector search
+    """
 
-    def bulk_add(self, items: list[QAItem]) -> None:
-        for i in items:
-            self._items[i.id] = i
+    def __init__(
+        self,
+        vector_db: VectorPort,
+        embedder: EmbedPort,
+        threshold: float = 0.75,
+    ) -> None:
+        self._vdb = vector_db
+        self._embed = embedder
+        self._threshold = threshold
 
-    def search(
+    async def search(
         self,
         query: str,
         project: str | None = None,
-        threshold: float = 0.30,   # Ngưỡng thấp hơn cho multi-signal
-        top_k: int = 1,
+        top_k: int = 3,
     ) -> list[QAItem]:
-        q_norm = _normalize(query)
-        q_tokens = set(_tokenize(q_norm))
-        q_bigrams = set(_bigrams(q_tokens))
+        """
+        Semantic search trong Qdrant qa_pairs collection.
+        Trả danh sách QAItem đã vượt ngưỡng cosine similarity, kèm score.
+        # Nếu project rỗng hoặc là placeholder từ Swagger, bỏ qua filter dự án để tìm rộng hơn"""
+        search_project = project
+        if not project or project.lower() in ["string", "", "none", "default"]:
+            search_project = None
 
-        scored: list[tuple[float, QAItem]] = []
+        vec = await self._embed.embed_one(query)
+        results = await self._vdb.search(
 
-        for item in self._items.values():
-            if not item.is_active:
+            vector=vec,
+            top_k=top_k + 2,        # lấy dư để lọc threshold
+            filter=SearchFilter(project_name=search_project, status="active"),
+        )
+
+
+        items: list[QAItem] = []
+        for r in results:
+            if r.score < self._threshold:
                 continue
-            if project and item.project_name != project:
-                continue
+            payload = r.extra       # full payload từ QdrantAdapter (đã fix)
+            items.append(QAItem(
+                id=r.id,
+                project_name=payload.get("project_name", r.project_name),
+                question=payload.get("question", r.text),
+                answer=payload.get("answer", ""),
+                keywords=payload.get("keywords", []),
+                doc_group=payload.get("doc_group") or None,
+                score=r.score,
+            ))
+            if len(items) >= top_k:
+                break
 
-            score = _score(q_norm, q_tokens, q_bigrams, item)
-            if score >= threshold:
-                scored.append((score, item))
+        return items
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [qa for _, qa in scored[:top_k]]
+    async def bulk_add(self, items: list[QAItem]) -> int:
+        """
+        Batch embed + upsert tất cả items vào Qdrant.
+        - 1 API call embedding cho toàn batch → tiết kiệm cost
+        - ID deterministic từ (project, question) → re-import an toàn
+        - Qdrant upsert = insert or update → idempotent
+        """
+        if not items:
+            return 0
 
-    def deactivate(self, qa_id: str) -> bool:
-        if qa_id in self._items:
-            self._items[qa_id].is_active = False
+        questions = [i.question for i in items]
+        try:
+            vectors = await self._embed.embed(questions)
+        except Exception as e:
+            log.error("qa_bulk_embed_failed", error=str(e), count=len(items))
+            raise
+
+        points = [
+            VectorPoint(
+                id=i.id,                    # deterministic → idempotent
+                vector=v,
+                payload={
+                    "question":      i.question,
+                    "answer":        i.answer,
+                    "project_name":  i.project_name,
+                    "keywords":      i.keywords,
+                    "doc_group":     i.doc_group or "",
+                    "text":          i.question,   # compat với SearchResult.text
+                    "document_code": i.project_name,   # dùng cho delete_by_document
+                    "type":          "qa",
+                },
+            )
+            for i, v in zip(items, vectors)
+        ]
+
+        count = await self._vdb.upsert(points)
+        log.info(
+            "qa_bulk_add_done",
+            count=count,
+            project=items[0].project_name if items else "",
+        )
+        return count
+
+    async def delete_by_project(self, project_name: str) -> None:
+        """Xóa toàn bộ Q&A của một project (dùng khi re-import fresh)."""
+        await self._vdb.delete_by_document(project_name)
+
+    async def list_by_project(
+        self,
+        project_name: str,
+        limit: int = 500,
+    ) -> list[QAItem]:
+        """
+        List Q&A của một project — dùng cho API GET /qa.
+        Dùng Qdrant scroll (không cần vector) → chính xác, không cần embedding.
+        Hỗ trợ limit lớn cho project có nhiều Q&A.
+        """
+        results, _ = await self._vdb.scroll(
+            filter=SearchFilter(project_name=project_name, status="active"),
+            limit=limit,
+        )
+        return [
+            QAItem(
+                id=r.id,
+                project_name=r.extra.get("project_name", project_name),
+                question=r.extra.get("question", r.text),
+                answer=r.extra.get("answer", ""),
+                keywords=r.extra.get("keywords", []),
+                doc_group=r.extra.get("doc_group") or None,
+            )
+            for r in results
+        ]
+
+    async def deactivate(self, qa_id: str) -> bool:
+        """Soft-delete: đặt status='superseded' trong Qdrant payload."""
+        try:
+            from app.infrastructure.vector.qdrant_adapter import QdrantAdapter
+            if isinstance(self._vdb, QdrantAdapter):
+                client = self._vdb._get_client()
+                from qdrant_client.models import PointIdsList
+                await client.set_payload(
+                    collection_name=self._vdb._collection,
+                    payload={"status": "superseded"},
+                    points=PointIdsList(points=[qa_id]),
+                )
             return True
+        except Exception as e:
+            log.error("qa_deactivate_failed", qa_id=qa_id, error=str(e))
         return False
 
-    def list_by_project(self, project: str) -> list[QAItem]:
-        return [i for i in self._items.values() if i.project_name == project and i.is_active]
 
-    def count(self) -> int:
-        return sum(1 for i in self._items.values() if i.is_active)
-
+# ─────────────────────────────────────────────────────────────────
+# QATool — Agent tool interface (RAG-style v4)
+# ─────────────────────────────────────────────────────────────────
 
 class QATool(AgentTool):
+    """
+    Agent tool: tra cứu Q&A qua Qdrant semantic search.
 
-    def __init__(self, store: QAStore, threshold: float = 0.30):
+    RAG-style v4: Khi có Q&A match, inject answer vào state["rag_results"]
+    như một context chunk ưu tiên cao (thay vì set final_answer trực tiếp).
+    SynthesizerNode sẽ nhận context → LLM tổng hợp câu trả lời tự nhiên.
+
+    Ưu điểm so với direct-answer:
+    - Câu trả lời tự nhiên hơn, không cứng nhắc
+    - LLM có thể combine Q&A + document RAG context
+    - Dễ audit và debug qua sources list
+    """
+
+    def __init__(self, store: QAVectorStore):
         self._store = store
-        self._threshold = threshold
 
     @property
     def name(self) -> str:
@@ -102,133 +245,67 @@ class QATool(AgentTool):
     def description(self) -> str:
         return (
             "Tra cứu bộ câu hỏi/trả lời chuẩn đã được biên soạn sẵn. "
-            "Dùng khi câu hỏi phổ biến về dự án."
+            "Dùng khi câu hỏi phổ biến về dự án bất động sản."
         )
 
     async def run(self, state: AgentState) -> ToolResult:
-        results = self._store.search(
+        results = await self._store.search(
             query=state["raw_query"],
             project=state.get("project_name"),
-            threshold=self._threshold,
+            top_k=3,
         )
 
         if not results:
-            return ToolResult(success=False, data=None, summary="Không match Q&A chuẩn")
+            return ToolResult(
+                success=False,
+                data=None,
+                summary="Không match Q&A chuẩn",
+            )
 
-        best = results[0]
-        state["qa_result"] = best
+        # ── Inject Q&A answers vào rag_results (RAG-style) ──────────
+        # Q&A chunks đặt đầu danh sách → LLM ưu tiên sử dụng
+        qa_chunks = [
+            {
+                "score":         item.score,
+                "text":          f"Câu hỏi: {item.question}\nTrả lời: {item.answer}",
+                "source_type":   "qa",          # phân biệt với document chunks
+                "document_code": f"qa::{item.id}",
+                "document_name": "Bộ Q&A chuẩn",
+                "doc_group":     item.doc_group or "qa",
+                "project_name":  item.project_name,
+                "page_number":   None,
+            }
+            for item in results
+        ]
 
+        # Prepend Q&A context (ưu tiên cao hơn document RAG)
+        existing_rag = state.get("rag_results", [])
+        state["rag_results"] = qa_chunks + existing_rag
+
+        # Gắn sources để hiển thị cho user
+        qa_sources = [
+            SourceRef(
+                document_code=f"qa::{item.id}",
+                document_name="Bộ Q&A chuẩn",
+                doc_group=item.doc_group or "qa",
+                excerpt=item.answer[:200],
+                page=None,
+            )
+            for item in results
+        ]
+        existing_sources = state.get("sources", [])
+        state["sources"] = qa_sources + existing_sources
+
+        # Giữ qa_result cho backward compat / logging
+        state["qa_result"] = results[0]
+        state["qa_hit"] = True
+
+        best_score = results[0].score
         return ToolResult(
             success=True,
-            data=best,
-            summary=f"Match Q&A: {best.question[:60]!r}",
+            data=results,
+            summary=(
+                f"Match {len(results)} Q&A (top score={best_score:.2f}): "
+                f"{results[0].question[:60]!r}"
+            ),
         )
-
-
-# ─────────────────────────────────────────────────────────────────
-# Text processing helpers
-# ─────────────────────────────────────────────────────────────────
-
-# Các từ viết tắt phổ biến trong bất động sản → expand để so sánh tốt hơn
-_ABBREVIATIONS = {
-    "cđt": "chủ đầu tư",
-    "bđs": "bất động sản",
-    "hđmb": "hợp đồng mua bán",
-    "gpxd": "giấy phép xây dựng",
-    "gpkd": "giấy phép kinh doanh",
-    "gcn": "giấy chứng nhận",
-    "qsd": "quyền sử dụng",
-    "shr": "sổ hồng riêng",
-    "sh": "sổ hồng",
-    "pn": "phòng ngủ",
-    "2pn": "hai phòng ngủ",
-    "3pn": "ba phòng ngủ",
-    "vp": "văn phòng",
-}
-
-
-def _normalize(text: str) -> str:
-    """Normalize text: lowercase, remove diacritics partially, expand abbreviations."""
-    text = text.lower().strip()
-    # Xóa dấu câu thừa nhưng giữ khoảng trắng
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    # Expand abbreviations
-    tokens = text.split()
-    expanded = [_ABBREVIATIONS.get(t, t) for t in tokens]
-    return " ".join(expanded)
-
-
-def _tokenize(text: str) -> list[str]:
-    """Tách từ, lọc stop words ngắn."""
-    _STOP = {"là", "và", "có", "không", "của", "cho", "được", "với", "về",
-             "đã", "này", "các", "hay", "hoặc", "theo", "bằng", "tại",
-             "trong", "ngoài", "trên", "dưới", "đến", "từ", "ra", "vào"}
-    tokens = [t for t in text.split() if len(t) > 1 and t not in _STOP]
-    return tokens
-
-
-def _bigrams(tokens: list[str] | set[str]) -> list[tuple[str, str]]:
-    tlist = list(tokens)
-    return [(tlist[i], tlist[i + 1]) for i in range(len(tlist) - 1)]
-
-
-def _jaccard(a: set, b: set) -> float:
-    if not a and not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-def _score(
-    q_norm: str,
-    q_tokens: set[str],
-    q_bigrams: set[tuple],
-    item: QAItem,
-) -> float:
-    """
-    Multi-signal scoring:
-      - exact match       → 1.0 (ngay lập tức trả về)
-      - keyword hit       → +0.4 per keyword hit
-      - token Jaccard     → weight 0.5
-      - bigram Jaccard    → weight 0.3
-      - substring         → +0.2 bonus
-    """
-    item_norm = _normalize(item.question)
-
-    # 1. Exact match (sau normalize)
-    if q_norm == item_norm:
-        return 1.0
-
-    # 2. Keyword exact match (keywords từ cột Keywords trong Excel)
-    if item.keywords:
-        kw_norm = [_normalize(kw) for kw in item.keywords]
-        kw_hits = sum(1 for kw in kw_norm if kw and kw in q_norm)
-        if kw_hits > 0:
-            kw_score = min(0.4 * kw_hits, 0.8)   # max bonus 0.8
-        else:
-            kw_score = 0.0
-    else:
-        kw_score = 0.0
-
-    # 3. Token Jaccard (unigram)
-    item_tokens = set(_tokenize(item_norm))
-    unigram_score = _jaccard(q_tokens, item_tokens)
-
-    # 4. Bigram Jaccard
-    item_bigrams = set(_bigrams(item_tokens))
-    bigram_score = _jaccard(q_bigrams, item_bigrams) if q_bigrams and item_bigrams else 0.0
-
-    # 5. Substring bonus: query chứa trong question hoặc ngược lại
-    sub_bonus = 0.0
-    if len(q_norm) > 5 and (q_norm in item_norm or item_norm in q_norm):
-        sub_bonus = 0.25
-
-    # Tổng hợp
-    combined = (
-        kw_score
-        + unigram_score * 0.5
-        + bigram_score * 0.3
-        + sub_bonus
-    )
-
-    return min(combined, 1.0)  # clamp về [0, 1]

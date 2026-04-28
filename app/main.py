@@ -97,9 +97,20 @@ async def lifespan(app: FastAPI):
     )
     app.state.sales_api = sales_api
 
-    # ── 7. Q&A Store ──────────────────────────────────────────────
-    from app.agent.tools.qa_tool import QAStore
-    qa_store = QAStore()
+    # ── 7. Q&A Vector Store (collection riêng: "qa_pairs") ────────
+    # Tách hoàn toàn với realestate_kb → scale độc lập, không ảnh hưởng nhau
+    from app.agent.tools.qa_tool import QAVectorStore
+    qa_vector_db = QdrantAdapter(
+        url=cfg.qdrant_url,
+        api_key=cfg.qdrant_api_key,
+        collection=cfg.qa_qdrant_collection,
+    )
+    await qa_vector_db.ensure_collection(dimension=cfg.embedding_dimension)
+    qa_store = QAVectorStore(
+        vector_db=qa_vector_db,
+        embedder=embedder,
+        threshold=cfg.qa_score_threshold,
+    )
     app.state.qa_store = qa_store
 
     # ── 8. Tool Registry (OCP: thêm tool = register(), không sửa gì) ──
@@ -115,7 +126,7 @@ async def lifespan(app: FastAPI):
     )
 
     registry = ToolRegistry()
-    registry.register(QATool(store=qa_store, threshold=cfg.qa_score_threshold))
+    registry.register(QATool(store=qa_store))   # threshold đã cấu hình trong QAVectorStore
     registry.register(RAGTool(
         vector_db=vector_db,
         embedder=embedder,
@@ -163,7 +174,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.handle_chat_uc = HandleChatUseCase(agent_graph=agent_graph)
     import_qa_uc = ImportQAUseCase(qa_store=qa_store)
-    app.state.import_qa_uc   = import_qa_uc
+    app.state.import_qa_uc  = import_qa_uc
 
     # ── 10.5. Auto-load Q&A Excel khi khởi động ───────────────────────────
     # Đặt QA_AUTOLOAD_FILE=./data/your_qa.xlsx trong .env để kích hoạt
@@ -173,7 +184,7 @@ async def lifespan(app: FastAPI):
         _qa_path = Path(cfg.qa_autoload_file)
         if _qa_path.exists():
             try:
-                _qa_result = import_qa_uc.execute(
+                _qa_result = await import_qa_uc.execute(
                     ImportQARequest(
                         file_bytes=_qa_path.read_bytes(),
                         file_name=_qa_path.name,

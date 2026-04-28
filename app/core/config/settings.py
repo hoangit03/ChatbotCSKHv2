@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
     qdrant_collection: str = "realestate_kb"
+    qa_qdrant_collection: str = "qa_pairs"   # collection riêng cho Q&A — tách data
 
     # ── Database ──────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragdb"

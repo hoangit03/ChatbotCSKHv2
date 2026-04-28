@@ -1,25 +1,30 @@
 """
 app/application/usecases/import_qa.py
 
-Use Case: Import bộ Q&A chuẩn từ file Excel vào QAStore.
+Use Case: Import bộ Q&A chuẩn từ file Excel vào QAVectorStore (Qdrant).
 
 Excel format (tối thiểu 2 cột):
   | Question        | Answer       | Keywords (opt)      | DocGroup (opt) |
   |-----------------|--------------|---------------------|----------------|
   | Giá căn hộ 2PN? | Từ 3 tỷ VNĐ  | giá, 2pn, price     | price_list     |
 
-SRP: chỉ lo đọc Excel + normalize + add vào QAStore.
+Luồng xử lý:
+  1. Đọc Excel → parse rows → tạo QAItem với deterministic ID
+  2. Bỏ qua rows thiếu question/answer hoặc là dòng tiêu đề nhóm
+  3. Gom toàn bộ items → 1 lần bulk_add (1 API call embedding cho cả batch)
+  4. Qdrant upsert idempotent → import lại file cũ/file mới không duplicate
+
+SRP: chỉ lo đọc Excel + normalize + add vào QAVectorStore.
 OCP: format Excel thay đổi → chỉ sửa _parse_rows(), không sửa gì khác.
 """
 from __future__ import annotations
 
 import io
 import re
-import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.agent.tools.qa_tool import QAItem, QAStore
+from app.agent.tools.qa_tool import QAItem, QAVectorStore
 from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
@@ -47,17 +52,20 @@ class ImportQAResult:
 
 class ImportQAUseCase:
     """
-    Đọc Excel → chuẩn hoá → thêm vào QAStore.
-    QAStore được inject qua constructor (DIP).
+    Đọc Excel → chuẩn hoá → bulk_add vào QAVectorStore.
+    QAVectorStore được inject qua constructor (DIP).
+
+    Async vì QAVectorStore.bulk_add() cần async embedding API call.
+    Idempotent: QAItem.make_id() tạo deterministic UUID từ (project, question)
+    → import cùng file nhiều lần, hoặc nhiều file có Q&A trùng → không duplicate.
     """
 
-    def __init__(self, qa_store: QAStore) -> None:
+    def __init__(self, qa_store: QAVectorStore) -> None:
         self._store = qa_store
 
-    def execute(self, req: ImportQARequest) -> ImportQAResult:
+    async def execute(self, req: ImportQARequest) -> ImportQAResult:
         """
-        Đồng bộ (không async) vì openpyxl không cần async I/O.
-        File bytes đã được đọc trước khi gọi use case này.
+        Async: openpyxl parse sync → collect items → await bulk_add một lần.
         """
         log.info(
             "qa_import_start",
@@ -81,8 +89,10 @@ class ImportQAUseCase:
 
         rows = list(ws.iter_rows(values_only=True))
         if len(rows) < 2:
-            return ImportQAResult(total_rows=0, imported=0, skipped=0,
-                                  errors=["File Excel không có dữ liệu (cần ít nhất 1 dòng header + 1 dòng data)"])
+            return ImportQAResult(
+                total_rows=0, imported=0, skipped=0,
+                errors=["File Excel không có dữ liệu (cần ít nhất 1 dòng header + 1 dòng data)"],
+            )
 
         header = [str(c or "").strip().lower() for c in rows[0]]
         col = _map_columns(header)
@@ -94,7 +104,7 @@ class ImportQAUseCase:
                         "Kiểm tra tên cột ở dòng đầu tiên."],
             )
 
-        imported = 0
+        items: list[QAItem] = []
         skipped = 0
         errors: list[str] = []
         data_rows = rows[1:]
@@ -109,13 +119,7 @@ class ImportQAUseCase:
                     continue
 
                 # Bỏ qua dòng tiêu đề nhóm (vd: "1. Nhóm câu hỏi về pháp lý...")
-                # Dấu hiệu: không có dấu ? và bắt đầu bằng số + dấu chấm
-                if re.match(r"^\d+[\.\)]\s+", question) and "?" not in question:
-                    skipped += 1
-                    continue
-
-                # Bỏ qua dòng trùng câu hỏi cùng project
-                if self._store.search(question, project=req.project_name, threshold=0.95):
+                if re.match(r"^\d+[\.]\s+", question) and "?" not in question:
                     skipped += 1
                     continue
 
@@ -129,22 +133,31 @@ class ImportQAUseCase:
                     doc_group = _cell(row, col["docgroup"]) or None
 
                 item = QAItem(
-                    id=str(uuid.uuid4()),
+                    id=QAItem.make_id(req.project_name, question),   # deterministic
                     project_name=req.project_name,
                     question=question,
                     answer=answer,
                     keywords=keywords,
                     doc_group=doc_group,
                 )
-                self._store.add(item)
-                imported += 1
+                items.append(item)
 
             except Exception as e:
                 errors.append(f"Dòng {row_idx}: {e}")
 
+        # ── Bulk embed + upsert một lần — tối ưu API call ─────────
+        imported = 0
+        if items:
+            try:
+                imported = await self._store.bulk_add(items)
+            except Exception as e:
+                log.error("qa_import_bulk_add_failed", error=str(e))
+                errors.append(f"Lỗi upsert Qdrant: {e}")
+
         log.info(
             "qa_import_done",
             project=req.project_name,
+            total=len(data_rows),
             imported=imported,
             skipped=skipped,
             errors=len(errors),

@@ -61,11 +61,12 @@ class RAGTool(AgentTool):
                 summary=f"Không tìm thấy tài liệu phù hợp (threshold={self._threshold})",
             )
 
-        # Cập nhật state
-        state["rag_results"] = [
+        # APPEND document chunks — không overwrite Q&A chunks đã inject trước đó
+        doc_chunks = [
             {
                 "score": r.score,
                 "text": r.text,
+                "source_type": "document",      # phân biệt với qa chunks
                 "document_code": r.document_code,
                 "document_name": r.document_name,
                 "doc_group": r.doc_group,
@@ -74,9 +75,11 @@ class RAGTool(AgentTool):
             }
             for r in relevant
         ]
+        existing_rag = state.get("rag_results") or []
+        state["rag_results"] = existing_rag + doc_chunks
 
-        # Gắn source refs
-        state["sources"] = [
+        # APPEND source refs — không overwrite Q&A sources
+        doc_sources = [
             SourceRef(
                 document_code=r.document_code,
                 document_name=r.document_name,
@@ -86,9 +89,11 @@ class RAGTool(AgentTool):
             )
             for r in relevant
         ]
+        existing_sources = state.get("sources") or []
+        state["sources"] = existing_sources + doc_sources
 
         return ToolResult(
             success=True,
-            data=state["rag_results"],
+            data=doc_chunks,
             summary=f"Tìm được {len(relevant)} đoạn tài liệu liên quan (top score={relevant[0].score:.2f})",
         )

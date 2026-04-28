@@ -30,7 +30,7 @@ class SearchResult:
     doc_group: str
     project_name: str
     page_number: Optional[int]
-    extra: dict = field(default_factory=dict)
+    extra: dict = field(default_factory=dict)   # full payload — dùng cho QA lookup
 
 
 @dataclass
@@ -55,6 +55,20 @@ class VectorPort(ABC):
         top_k: int,
         filter: SearchFilter,
     ) -> list[SearchResult]:
+        ...
+
+    @abstractmethod
+    async def scroll(
+        self,
+        filter: SearchFilter,
+        limit: int = 100,
+        offset: Optional[str] = None,
+    ) -> tuple[list[SearchResult], Optional[str]]:
+        """
+        Cuộn qua tất cả points khớp filter (không cần vector).
+        Dùng cho list_by_project, export, admin APIs.
+        Trả về (results, next_offset) — next_offset=None nghĩa là hết data.
+        """
         ...
 
     @abstractmethod

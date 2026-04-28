@@ -79,6 +79,7 @@ class AgentState(TypedDict):
     was_injected: bool
     rag_results: list
     qa_result: Optional[Any]     # QAItem | None
+    qa_hit: bool                 # True nếu QATool tìm thấy match
     sales_data: dict
     final_answer: str
     sources: list
@@ -87,6 +88,7 @@ class AgentState(TypedDict):
     fallback_reason: str
     iteration: int
     error: Optional[str]
+
 
 
 
@@ -104,6 +106,7 @@ def make_initial_state(
         was_injected=False,
         rag_results=[],
         qa_result=None,
+        qa_hit=False,
         sales_data={},
         final_answer="",
         sources=[],
@@ -112,4 +115,4 @@ def make_initial_state(
         fallback_reason="",
         iteration=0,
         error=None,
-    )
+    )

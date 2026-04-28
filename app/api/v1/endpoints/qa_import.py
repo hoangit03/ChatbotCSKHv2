@@ -4,9 +4,9 @@ app/api/v1/endpoints/qa_import.py
 Quản lý bộ Q&A chuẩn (import từ Excel, list, deactivate).
 
 Endpoints:
-  POST   /api/v1/qa/import    — Upload file Excel Q&A
-  GET    /api/v1/qa           — List Q&A đang active theo project
-  DELETE /api/v1/qa/{qa_id}  — Vô hiệu hoá Q&A
+  POST   /api/v1/qa/import    — Upload file Excel Q&A (async, bulk embed)
+  GET    /api/v1/qa           — List Q&A đang active theo project (scroll API)
+  DELETE /api/v1/qa/{qa_id}  — Vô hiệu hoá Q&A (soft-delete)
 """
 from __future__ import annotations
 
@@ -55,7 +55,10 @@ File Excel cần có các cột (không phân biệt hoa/thường, hỗ trợ c
 | Question / Câu hỏi | Answer / Câu trả lời | Keywords (tuỳ chọn) | DocGroup (tuỳ chọn) |
 |---|---|---|---|
 
-Dòng trùng câu hỏi trong cùng dự án sẽ bị **bỏ qua** (skipped).
+**Lưu ý:**
+- Import nhiều file khác nhau, hoặc re-import cùng file → **không bị duplicate** (idempotent)
+- Q&A được embed và lưu vào Qdrant collection `qa_pairs` riêng biệt
+- Hỗ trợ import số lượng lớn (bulk embedding, 1 API call/batch)
     """,
 )
 async def import_qa(
@@ -81,7 +84,7 @@ async def import_qa(
     )
 
     try:
-        result = uc.execute(import_req)
+        result = await uc.execute(import_req)   # async — bulk embed + upsert Qdrant
     except Exception as e:
         log.error("qa_import_endpoint_error", error=str(e))
         raise HTTPException(
@@ -101,10 +104,11 @@ async def import_qa(
     "",
     response_model=list[QAItemOut],
     summary="Danh sách Q&A đang active theo dự án",
+    description="Dùng Qdrant scroll API — không cần vector search, hỗ trợ dataset lớn.",
 )
 async def list_qa(project_name: str, request: Request) -> list[QAItemOut]:
     qa_store = request.app.state.qa_store
-    items = qa_store.list_by_project(project_name)
+    items = await qa_store.list_by_project(project_name)   # async scroll
     return [
         QAItemOut(
             id=i.id,
@@ -122,12 +126,12 @@ async def list_qa(project_name: str, request: Request) -> list[QAItemOut]:
 @router.delete(
     "/{qa_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Vô hiệu hoá một Q&A (sales hoặc admin)",
+    summary="Vô hiệu hoá một Q&A (soft-delete)",
 )
 async def deactivate_qa(qa_id: str, request: Request):
     require_role(request, "admin", "sales")
     qa_store = request.app.state.qa_store
-    success = qa_store.deactivate(qa_id)
+    success = await qa_store.deactivate(qa_id)   # async
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
