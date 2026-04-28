@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware.auth import APIKeyMiddleware, APIKeyStore
-from app.api.v1.endpoints import chat, document, health, qa_import
+from app.api.v1.endpoints import chat, document, health, qa_import, project
 from app.core.config.settings import get_settings
 from app.shared.errors.exceptions import AppError
 from app.shared.logging.logger import get_logger, setup_logging
@@ -160,6 +160,9 @@ async def lifespan(app: FastAPI):
     from app.application.usecases.upload_document import UploadDocumentUseCase
     from app.application.usecases.handle_chat import HandleChatUseCase
     from app.application.usecases.import_qa import ImportQAUseCase
+    from app.infrastructure.cache.redis_history import RedisHistoryStore
+
+    history_store = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
 
     app.state.upload_doc_uc  = UploadDocumentUseCase(
         cfg=cfg,
@@ -168,7 +171,10 @@ async def lifespan(app: FastAPI):
         vector_db=vector_db,
         storage=storage,
     )
-    app.state.handle_chat_uc = HandleChatUseCase(agent_graph=agent_graph)
+    app.state.handle_chat_uc = HandleChatUseCase(
+        agent_graph=agent_graph,
+        history_store=history_store
+    )
     import_qa_uc = ImportQAUseCase(qa_store=qa_store)
     app.state.import_qa_uc  = import_qa_uc
 
@@ -271,6 +277,7 @@ app.include_router(health.router)                               # /health
 app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat
 app.include_router(document.router,   prefix=API_V1)           # /api/v1/documents
 app.include_router(qa_import.router,  prefix=API_V1)           # /api/v1/qa
+app.include_router(project.router,    prefix=API_V1)           # /api/v1/projects
 
 
 # ─────────────────────────────────────────────────────────────────

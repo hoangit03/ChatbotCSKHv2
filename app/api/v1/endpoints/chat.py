@@ -68,6 +68,7 @@ class ChatOut(BaseModel):
     fallback: bool = False
     fallback_reason: str = ""
     was_injected: bool = False
+    project_name: Optional[str] = None
     response_time_ms: int
 
 
@@ -134,5 +135,6 @@ async def chat(body: ChatIn, request: Request) -> ChatOut:
         fallback=resp.fallback,
         fallback_reason=resp.fallback_reason,
         was_injected=resp.was_injected,
+        project_name=resp.project_name,
         response_time_ms=resp.response_time_ms,
     )

@@ -51,14 +51,13 @@ def build_agent_graph(
     DIP: nhận interface, không import implementation cụ thể.
     """
     from app.agent.nodes.project_guard import project_guard_node
-    
     support_node = SupportNode(tool_registry)
-    sales_node = SalesNode(tool_registry)
+    sales_node = SalesNode(tool_registry, llm)
     synthesizer = SynthesizerNode(llm)
 
     # ── Helpers cho Guard Node ────────────────────────────────────
     async def wrapped_guard(state: AgentState) -> AgentState:
-        return await project_guard_node(state, tool_registry)
+        return await project_guard_node(state, tool_registry, llm)
 
     def route_after_guard(state: AgentState) -> str:
         # Nếu Guard đã ra quyết định dừng (set final_answer), kết thúc ngay
@@ -67,10 +66,13 @@ def build_agent_graph(
         # Ngược lại, đi theo intent đã phân loại
         return route_by_intent(state)
 
+    async def wrapped_classifier(state: AgentState) -> AgentState:
+        return await classify_intent(state, llm)
+
     # Build graph
     builder = StateGraph(AgentState)
 
-    builder.add_node("classify_intent", classify_intent)
+    builder.add_node("classify_intent", wrapped_classifier)
     builder.add_node("project_guard", wrapped_guard)
     builder.add_node("support_node", support_node)
     builder.add_node("sales_node", sales_node)
@@ -86,6 +88,7 @@ def build_agent_graph(
         {
             "support_node": "support_node",
             "sales_node": "sales_node",
+            "synthesizer": "synthesizer",
             "end": END
         },
     )
@@ -96,4 +99,4 @@ def build_agent_graph(
 
     compiled = builder.compile()
     log.info("agent_graph_compiled", max_iterations=max_iterations)
-    return compiled
+    return compiled

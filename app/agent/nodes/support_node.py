@@ -25,12 +25,8 @@ class SupportNode:
 
     Thứ tự:
     1. QA lookup → nếu hit, inject Q&A answer vào rag_results (RAG-style)
-    2. RAG search → nếu Q&A đã hit với score cao, bỏ qua RAG để tiết kiệm cost
-                 → nếu Q&A miss hoặc score thấp, run RAG để bổ sung context
+    2. RAG search → run RAG để bổ sung context (luôn chạy để lấy context phong phú nhất)
     """
-
-    # Ngưỡng score Q&A đủ cao để bỏ qua RAG (tiết kiệm latency + cost)
-    QA_SKIP_RAG_THRESHOLD = 0.88
 
     def __init__(self, registry: ToolRegistry):
         self._registry = registry
@@ -51,13 +47,6 @@ class SupportNode:
                     session=state.get("session_id"),
                     score=best_score,
                 )
-                # Score đủ cao → bỏ qua RAG (Q&A answer đã đủ chính xác)
-                if best_score >= self.QA_SKIP_RAG_THRESHOLD:
-                    log.info(
-                        "support_skip_rag",
-                        reason=f"qa_score={best_score:.2f} >= {self.QA_SKIP_RAG_THRESHOLD}",
-                    )
-                    return state
 
         # ── 2. RAG search (document vector search trên realestate_kb) ──
         rag_tool = self._registry.get("rag_search")
