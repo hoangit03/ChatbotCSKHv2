@@ -13,6 +13,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
+    image: chatbotcskhv2-api
     container_name: rag_api
     env_file: .env # load toàn bộ config từ .env
     ports:
@@ -46,10 +47,7 @@ services:
 
   # ── Streamlit Frontend ────────────────────────────────────────
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
+    image: chatbotcskhv2-api
     container_name: rag_frontend
     env_file: .env
     environment:
