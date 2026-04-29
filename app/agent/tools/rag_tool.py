@@ -45,7 +45,11 @@ class RAGTool(AgentTool):
         query = state["raw_query"]
         project = state.get("project_name")
 
-        query_vec = await self._embed.embed_one(query)
+        query_vec = state.get("query_embedding")
+        if not query_vec:
+            query_vec = await self._embed.embed_one(query)
+            state["query_embedding"] = query_vec
+
         results = await self._vdb.search(
             vector=query_vec,
             top_k=self._top_k,
@@ -77,8 +81,9 @@ class RAGTool(AgentTool):
             }
             for r in relevant
         ]
-        existing_rag = state.get("rag_results") or []
-        state["rag_results"] = existing_rag + doc_chunks
+        if "rag_results" not in state or state["rag_results"] is None:
+            state["rag_results"] = []
+        state["rag_results"].extend(doc_chunks)
 
         # APPEND source refs — không overwrite Q&A sources
         doc_sources = [
@@ -91,8 +96,9 @@ class RAGTool(AgentTool):
             )
             for r in relevant
         ]
-        existing_sources = state.get("sources") or []
-        state["sources"] = existing_sources + doc_sources
+        if "sources" not in state or state["sources"] is None:
+            state["sources"] = []
+        state["sources"].extend(doc_sources)
 
         return ToolResult(
             success=True,

@@ -81,6 +81,7 @@ class AgentState(TypedDict):
     rag_results: list
     qa_result: Optional[Any]     # QAItem | None
     qa_hit: bool                 # True nếu QATool tìm thấy match
+    query_embedding: Optional[list[float]] # Lưu embedding của query để dùng chung
     sales_data: dict
     final_answer: str
     sources: list
@@ -113,6 +114,7 @@ def make_initial_state(
         rag_results=[],
         qa_result=None,
         qa_hit=False,
+        query_embedding=None,
         sales_data={},
         final_answer="",
         sources=[],
