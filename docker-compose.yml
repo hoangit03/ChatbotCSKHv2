@@ -24,8 +24,6 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - rag_internal
@@ -82,29 +80,6 @@ services:
     networks:
       - rag_internal
 
-  # ── PostgreSQL (metadata, logs, Q&A production) ───────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: rag_postgres
-    environment:
-      POSTGRES_DB: ragdb
-      POSTGRES_USER: ${DB_USER:-raguser}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragpassword}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - rag_internal
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-raguser} -d ragdb" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Redis (rate limit + cache) ────────────────────────────────
   redis:
     image: redis:7-alpine
@@ -125,8 +100,6 @@ services:
 # ── Volumes ───────────────────────────────────────────────────
 volumes:
   qdrant_data:
-    driver: local
-  postgres_data:
     driver: local
   redis_data:
     driver: local
