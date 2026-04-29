@@ -220,14 +220,15 @@ class ChatbotAPI:
 # ─────────────────────────────────────────────────────────────────
 
 def init_session_state():
+    import os
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
     if "api_url" not in st.session_state:
-        st.session_state.api_url = "http://localhost:8000"
+        st.session_state.api_url = os.getenv("API_BASE_URL", "http://localhost:8000")
     if "api_key" not in st.session_state:
-        st.session_state.api_key = "dev-secret-key"
+        st.session_state.api_key = os.getenv("API_SECRET_KEY", "dev-secret-key")
 
 def render_sidebar(api_client: ChatbotAPI):
     with st.sidebar:
