@@ -172,13 +172,23 @@ class UnitSearchTool(AgentTool):
     async def run(self, state: AgentState) -> ToolResult:
         query = state["raw_query"]
         bedrooms = _extract_bedrooms(query)
+        min_price = _extract_min_price(query)
         max_price = _extract_max_price(query)
+        min_area = _extract_min_area(query)
+        max_area = _extract_max_area(query)
+        floor = _extract_floor(query)
+        direction = _extract_direction(query)
 
         try:
             units = await self._api.search_units(
                 project=_project(state),
                 bedrooms=bedrooms,
+                min_price_vnd=min_price,
                 max_price_vnd=max_price,
+                min_area_m2=min_area,
+                max_area_m2=max_area,
+                direction=direction,
+                floor=floor,
             )
             if not units:
                 return ToolResult(success=False, data=[], summary="Không tìm thấy căn hộ phù hợp.")
@@ -190,7 +200,10 @@ class UnitSearchTool(AgentTool):
                     "area_m2": u.area_m2,
                     "price_vnd": u.price_vnd,
                     "price_formatted": _fmt_vnd(u.price_vnd),
+                    "total_price": _fmt_vnd(u.total_price) if u.total_price else _fmt_vnd(u.price_vnd),
                     "floor": u.floor,
+                    "direction": u.direction,
+                    "sale_program": u.sale_program,
                 }
                 for u in units[:10]
             ]
@@ -272,3 +285,29 @@ def _extract_max_price(text: str) -> Optional[float]:
     val = float(m.group(1).replace(",", "."))
     unit = m.group(2).lower()
     return val * 1_000_000_000 if "tỷ" in unit else val * 1_000_000
+
+def _extract_min_price(text: str) -> Optional[float]:
+    m = re.search(r"(?:từ|trên|>)\s*(\d+(?:[.,]\d+)?)\s*(tỷ|triệu)", text, re.IGNORECASE)
+    if not m: return None
+    val = float(m.group(1).replace(",", "."))
+    unit = m.group(2).lower()
+    return val * 1_000_000_000 if "tỷ" in unit else val * 1_000_000
+
+def _extract_floor(text: str) -> Optional[str]:
+    m = re.search(r"tầng\s*(\d{1,3}[a-zA-Z]?)", text, re.IGNORECASE)
+    return m.group(1).upper() if m else None
+
+def _extract_direction(text: str) -> Optional[str]:
+    directions = ["đông nam", "tây nam", "đông bắc", "tây bắc", "đông tứ trạch", "tây tứ trạch", "đông", "tây", "nam", "bắc"]
+    for d in directions:
+        if re.search(rf"\b{d}\b", text, re.IGNORECASE):
+            return d.capitalize()
+    return None
+
+def _extract_min_area(text: str) -> Optional[float]:
+    m = re.search(r"(?:từ|trên|>)\s*(\d+(?:[.,]\d+)?)\s*m2", text, re.IGNORECASE)
+    return float(m.group(1).replace(",", ".")) if m else None
+
+def _extract_max_area(text: str) -> Optional[float]:
+    m = re.search(r"(?:dưới|không quá|tối đa|<)\s*(\d+(?:[.,]\d+)?)\s*m2", text, re.IGNORECASE)
+    return float(m.group(1).replace(",", ".")) if m else None

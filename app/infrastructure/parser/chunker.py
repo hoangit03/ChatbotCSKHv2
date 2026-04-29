@@ -2,13 +2,13 @@
 app/infrastructure/parser/chunker.py
 
 Token-based sliding window chunker.
-SRP: chỉ làm một việc — chia text thành chunks với overlap.
+Sửa lỗi: decode tokens về lại text khi force split hoặc xử lý overlap.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 
 @dataclass
@@ -21,24 +21,25 @@ class Chunk:
 
 
 class Chunker:
-    """
-    Chiến lược:
-      1. Tách theo đoạn văn (semantic boundary)
-      2. Ghép đoạn cho đến khi đầy chunk_size
-      3. Overlap = giữ lại chunk_overlap token cuối của chunk trước
-
-    SRP: không biết gì về vector DB hay LLM.
-    """
-
     def __init__(
         self,
         chunk_size: int = 800,
         chunk_overlap: int = 100,
-        tokenizer: Callable[[str], list] | None = None,
+        tokenizer: Any = None,
     ):
         self._size = chunk_size
         self._overlap = chunk_overlap
-        self._tok = tokenizer or _default_tokenizer()
+        # Mặc định dùng tiktoken nếu có
+        self._tokenizer_obj = tokenizer or _get_default_tokenizer_obj()
+        
+        # Helper để lấy encode/decode methods
+        if hasattr(self._tokenizer_obj, "encode") and hasattr(self._tokenizer_obj, "decode"):
+            self._encode = self._tokenizer_obj.encode
+            self._decode = self._tokenizer_obj.decode
+        else:
+            # Fallback nếu dùng string split đơn giản
+            self._encode = lambda x: x.split()
+            self._decode = lambda x: " ".join(x)
 
     def chunk(
         self,
@@ -52,70 +53,73 @@ class Chunker:
         paragraphs = _split_paragraphs(text)
         chunks: list[Chunk] = []
         current_parts: list[str] = []
-        current_tok: list = []
+        current_tok_len = 0
         idx = 0
 
         for para in paragraphs:
-            para_tok = self._tok(para)
+            para_tok = self._encode(para)
+            para_len = len(para_tok)
 
-            # Đoạn quá dài → force split
-            if len(para_tok) > self._size:
+            # 1. Đoạn quá dài (vượt cả chunk size) -> force split theo token
+            if para_len > self._size:
                 if current_parts:
-                    chunks.append(self._make(idx, current_parts, current_tok, page, base_metadata))
+                    chunks.append(self._make(idx, current_parts, current_tok_len, page, base_metadata))
                     idx += 1
-                for sub in self._force_split(para):
+                
+                for sub_text in self._force_split(para):
+                    sub_tok = self._encode(sub_text)
                     chunks.append(Chunk(
                         index=idx,
-                        text=sub,
-                        token_count=len(self._tok(sub)),
+                        text=sub_text,
+                        token_count=len(sub_tok),
                         page=page,
                         metadata={**base_metadata, "chunk_index": idx},
                     ))
                     idx += 1
-                current_parts, current_tok = [], []
+                current_parts, current_tok_len = [], 0
                 continue
 
-            # Flush nếu thêm vào sẽ vượt limit
-            if len(current_tok) + len(para_tok) > self._size and current_parts:
-                chunks.append(self._make(idx, current_parts, current_tok, page, base_metadata))
+            # 2. Nếu thêm para này vào sẽ vượt size -> đóng chunk hiện tại
+            if current_tok_len + para_len > self._size and current_parts:
+                chunks.append(self._make(idx, current_parts, current_tok_len, page, base_metadata))
                 idx += 1
-                # Keep overlap
-                overlap_text = " ".join(current_tok[-self._overlap:])
-                current_parts = [overlap_text] if overlap_text else []
-                current_tok = self._tok(overlap_text)
+                
+                # Tạo overlap bằng cách lấy X tokens cuối của chunk vừa rồi
+                full_text_so_far = " ".join(current_parts)
+                tokens_so_far = self._encode(full_text_so_far)
+                overlap_tokens = tokens_so_far[-self._overlap:]
+                overlap_text = self._decode(overlap_tokens)
+                
+                current_parts = [overlap_text]
+                current_tok_len = len(overlap_tokens)
 
             current_parts.append(para)
-            current_tok = self._tok(" ".join(current_parts))
+            current_tok_len += para_len
 
         if current_parts:
-            chunks.append(self._make(idx, current_parts, current_tok, page, base_metadata))
+            chunks.append(self._make(idx, current_parts, current_tok_len, page, base_metadata))
 
         return chunks
 
-    def _make(
-        self,
-        idx: int,
-        parts: list[str],
-        tokens: list,
-        page: int | None,
-        meta: dict,
-    ) -> Chunk:
-        text = " ".join(parts)
+    def _make(self, idx: int, parts: list[str], tok_len: int, page: int | None, meta: dict) -> Chunk:
         return Chunk(
             index=idx,
-            text=text,
-            token_count=len(tokens),
+            text="\n".join(parts),
+            token_count=tok_len,
             page=page,
             metadata={**meta, "chunk_index": idx},
         )
 
     def _force_split(self, text: str) -> list[str]:
-        tokens = self._tok(text)
+        """Băm nhỏ một paragraph cực dài thành các chunks có overlap."""
+        tokens = self._encode(text)
         result = []
         start = 0
         while start < len(tokens):
             end = min(start + self._size, len(tokens))
-            result.append(" ".join(str(t) for t in tokens[start:end]))
+            chunk_tokens = tokens[start:end]
+            # QUAN TRỌNG: Phải decode tokens về lại text!
+            result.append(self._decode(chunk_tokens))
             start += self._size - self._overlap
         return result
 
@@ -125,10 +129,9 @@ def _split_paragraphs(text: str) -> list[str]:
     return [b.strip() for b in blocks if b.strip()]
 
 
-def _default_tokenizer() -> Callable[[str], list]:
+def _get_default_tokenizer_obj():
     try:
         import tiktoken
-        enc = tiktoken.get_encoding("cl100k_base")
-        return enc.encode
+        return tiktoken.get_encoding("cl100k_base")
     except Exception:
-        return str.split
+        return None

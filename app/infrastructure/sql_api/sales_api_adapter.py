@@ -110,14 +110,20 @@ class SalesAPIAdapter(SalesAPIPort):
 
         return [
             UnitAvailability(
-                unit_code=u.get("unit_code", ""),
-                project=u.get("project", project),
-                floor=int(u.get("floor", 0)),
-                area_m2=float(u.get("area_m2", 0)),
-                bedrooms=int(u.get("bedrooms", 0)),
+                unit_code=u.get("code", u.get("unit_code", "")),
+                project=u.get("projectId", project),
+                floor=int(str(u.get("floor", "0")).strip()) if str(u.get("floor", "")).strip().isdigit() else 0,
+                area_m2=float(u.get("builtUpArea", u.get("area_m2", 0)) or 0),
+                bedrooms=int(u.get("bedRoom", u.get("bedrooms", 0)) or 0),
                 status=u.get("status", "unknown"),
-                price_vnd=float(u.get("price_vnd", 0)),
-                price_per_m2=float(u.get("price_per_m2", 0)),
+                price_vnd=float(u.get("priceVat", u.get("price_vnd", 0)) or 0),
+                price_per_m2=float(u.get("unitPriceVat", u.get("price_per_m2", 0)) or 0),
+                direction=u.get("direction"),
+                carpet_area=float(u.get("carpetArea", 0) or 0),
+                maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
+                total_price=float(u.get("totalPrice", 0) or 0),
+                sale_program=u.get("saleProgramName"),
+                type=u.get("type")
             )
             for u in data
         ]
@@ -152,16 +158,31 @@ class SalesAPIAdapter(SalesAPIPort):
         self,
         project: str,
         bedrooms: Optional[int] = None,
+        min_price_vnd: Optional[float] = None,
         max_price_vnd: Optional[float] = None,
         min_area_m2: Optional[float] = None,
+        max_area_m2: Optional[float] = None,
+        direction: Optional[str] = None,
+        floor: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> list[UnitAvailability]:
-        params: dict = {"project": project, "status": "available"}
+        params: dict = {"project": project}
+        if status:
+            params["status"] = status
         if bedrooms is not None:
             params["bedrooms"] = bedrooms
+        if min_price_vnd is not None:
+            params["min_price"] = min_price_vnd
         if max_price_vnd is not None:
             params["max_price"] = max_price_vnd
         if min_area_m2 is not None:
             params["min_area"] = min_area_m2
+        if max_area_m2 is not None:
+            params["max_area"] = max_area_m2
+        if direction:
+            params["direction"] = direction
+        if floor:
+            params["floor"] = floor
 
         data = await self._get("/api/v1/units/search", params=params)
         if not isinstance(data, list):
@@ -169,14 +190,20 @@ class SalesAPIAdapter(SalesAPIPort):
 
         return [
             UnitAvailability(
-                unit_code=u.get("unit_code", ""),
-                project=u.get("project", project),
-                floor=int(u.get("floor", 0)),
-                area_m2=float(u.get("area_m2", 0)),
-                bedrooms=int(u.get("bedrooms", 0)),
-                status=u.get("status", "available"),
-                price_vnd=float(u.get("price_vnd", 0)),
-                price_per_m2=float(u.get("price_per_m2", 0)),
+                unit_code=u.get("code", u.get("unit_code", "")),
+                project=u.get("projectId", project),
+                floor=int(str(u.get("floor", "0")).strip()) if str(u.get("floor", "")).strip().isdigit() else 0,
+                area_m2=float(u.get("builtUpArea", u.get("area_m2", 0)) or 0),
+                bedrooms=int(u.get("bedRoom", u.get("bedrooms", 0)) or 0),
+                status=u.get("status", "unknown"),
+                price_vnd=float(u.get("priceVat", u.get("price_vnd", 0)) or 0),
+                price_per_m2=float(u.get("unitPriceVat", u.get("price_per_m2", 0)) or 0),
+                direction=u.get("direction"),
+                carpet_area=float(u.get("carpetArea", 0) or 0),
+                maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
+                total_price=float(u.get("totalPrice", 0) or 0),
+                sale_program=u.get("saleProgramName"),
+                type=u.get("type")
             )
             for u in data
         ]

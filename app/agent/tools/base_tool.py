@@ -10,9 +10,10 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from app.agent.state.agent_state import AgentState, ToolCall
+from app.core.interfaces.vector_port import VectorPort
 from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
@@ -87,12 +88,19 @@ class ToolRegistry:
     OCP: thêm tool = register(), không sửa code khác.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, vdb: Optional[VectorPort] = None) -> None:
         self._tools: dict[str, AgentTool] = {}
+        self._vdb = vdb
 
     def register(self, tool: AgentTool) -> None:
         self._tools[tool.name] = tool
         log.info("tool_registered", name=tool.name)
+
+    def get_vdb(self) -> VectorPort:
+        if not self._vdb:
+            raise ValueError("Vector DB not initialized in ToolRegistry")
+        return self._vdb
+
 
     def get(self, name: str) -> AgentTool | None:
         return self._tools.get(name)

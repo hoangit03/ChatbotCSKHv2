@@ -72,6 +72,11 @@ class VectorPort(ABC):
         ...
 
     @abstractmethod
+    async def list_unique_projects(self) -> list[str]:
+        """Lấy danh sách các dự án (unique project_name) đang có trong DB."""
+        ...
+
+    @abstractmethod
     async def mark_superseded(self, document_code: str) -> int:
         """Đánh dấu tất cả chunk của doc cũ thành superseded. Trả về count."""
         ...

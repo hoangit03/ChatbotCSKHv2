@@ -130,11 +130,13 @@ class UploadDocumentUseCase:
             "document_code": doc_code,
             "project_name":  req.project_name,
             "doc_group":     req.doc_group,
+            "source_type":   "document",
             "version":       req.version,
             "effective_date": req.effective_date.isoformat(),
             "file_name":     req.file_name,
             "uploaded_by":   req.uploaded_by,
         }
+
 
         all_chunks = []
         for page_chunk in parsed.chunks:
