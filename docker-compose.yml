@@ -16,7 +16,7 @@ services:
     container_name: rag_api
     env_file: .env # load toàn bộ config từ .env
     ports:
-      - "${APP_PORT:-8001}:8000"
+      - "8006:8000"
     volumes:
       - doc_storage:/app/storage/documents # file tài liệu persistent
     depends_on:
@@ -43,6 +43,27 @@ services:
           memory: 1G
         reservations:
           memory: 512M
+
+  # ── Streamlit Frontend ────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: rag_frontend
+    env_file: .env
+    environment:
+      - API_BASE_URL=http://api:8000
+    ports:
+      - "${APP_PORT:-8005}:8501"
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rag_internal
+      - global_proxy_network
 
   # ── Vector DB (Qdrant) ────────────────────────────────────────
   qdrant:

@@ -163,9 +163,10 @@ def apply_custom_style():
 # ─────────────────────────────────────────────────────────────────
 
 class ChatbotAPI:
-    def __init__(self, base_url="http://localhost:8000", api_key="dev-secret-key"):
-        self.base_url = base_url
-        self.api_key = api_key
+    def __init__(self, base_url=None, api_key=None):
+        import os
+        self.base_url = base_url or os.getenv("API_BASE_URL", "http://localhost:8000")
+        self.api_key = api_key or os.getenv("API_SECRET_KEY", "dev-secret-key")
         self.client = httpx.Client(timeout=60.0)
 
     def check_health(self):
