@@ -88,12 +88,13 @@ class QAVectorStore:
         query: str,
         project: str | None = None,
         top_k: int = 3,
+        query_vec: list[float] | None = None,
     ) -> list[QAItem]:
         """
         Semantic search trong Qdrant qa_pairs collection.
         Trả danh sách QAItem đã vượt ngưỡng cosine similarity, kèm score.
         """
-        vec = await self._embed.embed_one(query)
+        vec = query_vec if query_vec is not None else await self._embed.embed_one(query)
         results = await self._vdb.search(
             vector=vec,
             top_k=top_k + 2,        # lấy dư để lọc threshold
@@ -242,10 +243,12 @@ class QATool(AgentTool):
         )
 
     async def run(self, state: AgentState) -> ToolResult:
+        query_vec = state.get("query_embedding")
         results = await self._store.search(
             query=state["raw_query"],
             project=state.get("project_name"),
             top_k=3,
+            query_vec=query_vec,
         )
 
         if not results:
@@ -272,8 +275,10 @@ class QATool(AgentTool):
         ]
 
         # Prepend Q&A context (ưu tiên cao hơn document RAG)
-        existing_rag = state.get("rag_results", [])
-        state["rag_results"] = qa_chunks + existing_rag
+        if "rag_results" not in state or state["rag_results"] is None:
+            state["rag_results"] = []
+        # Chèn Q&A vào đầu list để ưu tiên
+        state["rag_results"] = qa_chunks + state["rag_results"]
 
         # Gắn sources để hiển thị cho user
         qa_sources = [
@@ -286,8 +291,10 @@ class QATool(AgentTool):
             )
             for item in results
         ]
-        existing_sources = state.get("sources", [])
-        state["sources"] = qa_sources + existing_sources
+        if "sources" not in state or state["sources"] is None:
+            state["sources"] = []
+        # Chèn vào đầu list
+        state["sources"] = qa_sources + state["sources"]
 
         # Giữ qa_result cho backward compat / logging
         state["qa_result"] = results[0]
