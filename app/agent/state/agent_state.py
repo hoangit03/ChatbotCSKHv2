@@ -26,6 +26,7 @@ class Intent(str, Enum):
     CUSTOMER_SUPPORT = "customer_support"   # hỏi về dự án, pháp lý, tiện ích
     SALES_INQUIRY    = "sales_inquiry"      # hỏi giá, tồn kho, đặt cọc
     BOOKING_INTENT   = "booking_intent"     # muốn đặt cọc/giữ chỗ
+    CHITCHAT         = "chitchat"           # chào hỏi, tán gẫu, câu hỏi chung
     UNKNOWN          = "unknown"
 
 
@@ -88,6 +89,9 @@ class AgentState(TypedDict):
     fallback_reason: str
     iteration: int
     error: Optional[str]
+    project_newly_confirmed: bool       # True khi guard vừa switch sang project mới
+    customer_name: Optional[str]        # Tên khách hàng (từ ChatRequest)
+    customer_phone: Optional[str]       # SĐT khách hàng (từ ChatRequest)
 
 
 
@@ -96,6 +100,8 @@ def make_initial_state(
     session_id: str,
     raw_query: str,
     project_name: str | None = None,
+    customer_name: str | None = None,
+    customer_phone: str | None = None,
 ) -> AgentState:
     return AgentState(
         messages=[],
@@ -115,4 +121,7 @@ def make_initial_state(
         fallback_reason="",
         iteration=0,
         error=None,
-    )
+        project_newly_confirmed=False,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+    )

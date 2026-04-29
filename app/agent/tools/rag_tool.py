@@ -52,6 +52,8 @@ class RAGTool(AgentTool):
             filter=SearchFilter(project_name=project, status="active"),
         )
 
+
+
         relevant = [r for r in results if r.score >= self._threshold]
 
         if not relevant:

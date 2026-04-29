@@ -230,3 +230,57 @@ class QdrantAdapter(VectorPort):
             log.info("qdrant_deleted", collection=self._collection, document_code=document_code)
         except Exception as e:
             raise VectorDBError(f"delete failed: {e}") from e
+
+    async def deactivate_point(self, point_id: str) -> bool:
+        """
+        Soft-delete một point theo ID — đặt status='superseded'.
+        Dùng cho qa_tool.deactivate() mà không cần import QdrantAdapter trực tiếp.
+        """
+        try:
+            from qdrant_client.models import PointIdsList
+            client = self._get_client()
+            await client.set_payload(
+                collection_name=self._collection,
+                payload={"status": "superseded"},
+                points=PointIdsList(points=[point_id]),
+            )
+            log.info("qdrant_point_deactivated", collection=self._collection, id=point_id)
+            return True
+        except Exception as e:
+            log.error("qdrant_deactivate_point_failed", id=point_id, error=str(e))
+            return False
+
+    async def list_unique_projects(self) -> list[str]:
+        """
+        Lấy danh sách unique project_name từ các chunk đang active.
+        Dùng scroll với filter status=active để tránh trả về project đã xóa.
+        Scroll theo batch 500 điểm, lặp đến hết để không bỏ sót project.
+        """
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue
+            client = self._get_client()
+            projects: set[str] = set()
+            offset = None
+            
+            while True:
+                batch, offset = await client.scroll(
+                    collection_name=self._collection,
+                    scroll_filter=Filter(must=[
+                        FieldCondition(key="status", match=MatchValue(value="active")),
+                    ]),
+                    limit=500,
+                    offset=offset,
+                    with_payload=["project_name"],
+                    with_vectors=False,
+                )
+                for p in batch:
+                    name = p.payload.get("project_name")
+                    if name:
+                        projects.add(name)
+                if offset is None:
+                    break
+            
+            return sorted(projects)
+        except Exception as e:
+            log.error("qdrant_list_projects_failed", error=str(e))
+            return []

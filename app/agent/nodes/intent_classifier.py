@@ -3,41 +3,43 @@ app/agent/nodes/intent_classifier.py
 
 Node 1: Phân loại intent.
 Quyết định luồng nào tiếp theo trong graph.
-Dùng rule-based + LLM fallback — tránh hallucination khi rule đủ.
+Dùng LLM (Zero-shot) để phân loại intent một cách linh hoạt, thay vì Regex.
 """
 from __future__ import annotations
 
-import re
-
+import json
 from app.agent.state.agent_state import AgentState, Intent
+from app.core.interfaces.llm_port import ChatPort, LLMMessage
 from app.shared.logging.logger import get_logger
 from app.shared.security.guards import sanitize_input
 
 log = get_logger(__name__)
 
-# Keywords cho rule-based classifier (nhanh, rẻ)
-_SALES_KW = re.compile(
-    r"giá|price|bao nhiêu tiền|còn căn|tồn kho|còn hàng|đặt cọc|"
-    r"giữ chỗ|booking|mua căn|thanh toán|vay|trả góp|diện tích|"
-    r"phòng ngủ|căn hộ còn|inventory|available",
-    re.IGNORECASE,
-)
-_BOOKING_KW = re.compile(
-    r"đặt cọc|đặt chỗ|giữ căn|booking|tôi muốn mua|tôi quyết định|"
-    r"cho tôi đặt|xác nhận mua",
-    re.IGNORECASE,
-)
-_SUPPORT_KW = re.compile(
-    r"pháp lý|tiện ích|vị trí|tiến độ|bàn giao|quy hoạch|"
-    r"sổ hồng|sổ đỏ|hạ tầng|trường học|bệnh viện|an ninh|"
-    r"chính sách bán hàng|ưu đãi|brochure|mặt bằng|faq|hỏi đáp",
-    re.IGNORECASE,
-)
+CLASSIFIER_PROMPT = """Bạn là một trợ lý thông minh cho chatbot bất động sản.
+Nhiệm vụ của bạn là:
+1. Đọc lịch sử hội thoại và câu hỏi mới nhất của khách hàng.
+2. Phân loại ý định của câu hỏi mới nhất vào 1 trong các nhóm sau:
+   - "customer_support": Khách hỏi thông tin dự án, pháp lý, tiện ích, tiến độ, chính sách bán hàng.
+   - "sales_inquiry": Khách hỏi giá, bao nhiêu tiền, tồn kho, còn căn không.
+   - "booking_intent": Khách thể hiện ý định muốn đặt cọc, giữ chỗ, mua căn, xác nhận mua.
+   - "chitchat": Khách chào hỏi, đồng ý/từ chối giao tiếp chung (vd: "có tôi muốn", "ok", "dạ"), hoặc các câu hỏi không liên quan đến BĐS.
+   - "unknown": Không thể phân loại.
+3. Nếu câu hỏi mới nhất bị thiếu ngữ cảnh (ví dụ: "có tôi muốn", "cái đó giá bao nhiêu", "nó ở đâu"), hãy viết lại câu hỏi (rewritten_query) bằng cách kết hợp với lịch sử hội thoại để tạo thành một câu hoàn chỉnh, dùng để tìm kiếm tài liệu. Nếu câu hỏi đã đủ ý, giữ nguyên.
+
+Bạn PHẢI trả về duy nhất một chuỗi JSON có format như sau, không có markdown:
+{{
+  "intent": "tên_intent",
+  "rewritten_query": "câu hỏi đã được viết lại cho đầy đủ ý nghĩa"
+}}
+
+LỊCH SỬ HỘI THOẠI:
+{history}
+"""
 
 
-async def classify_intent(state: AgentState) -> AgentState:
+async def classify_intent(state: AgentState, llm: ChatPort) -> AgentState:
     """
-    Node: sanitize input, classify intent.
+    Node: sanitize input, classify intent bằng LLM.
     Output: state với intent và raw_query đã set.
     """
     raw = state.get("raw_query", "")
@@ -53,15 +55,70 @@ async def classify_intent(state: AgentState) -> AgentState:
     state["raw_query"] = clean
     state["was_injected"] = injected
 
-    # Rule-based — ưu tiên BOOKING vì nó cụ thể nhất
-    if _BOOKING_KW.search(clean):
-        intent = Intent.BOOKING_INTENT
-    elif _SALES_KW.search(clean):
-        intent = Intent.SALES_INQUIRY
-    elif _SUPPORT_KW.search(clean):
-        intent = Intent.CUSTOMER_SUPPORT
-    else:
-        intent = Intent.UNKNOWN   # Graph sẽ thử cả RAG lẫn QA
+    # Build history string
+    history_str = ""
+    messages = state.get("messages") or []
+    for msg in messages[-4:]:  # Lấy 2 turns gần nhất (4 messages) để tối ưu token (GPT-4 mini)
+        role = "Khách" if msg.get("role") == "user" else "Bot"
+        content = msg.get("content", "")
+        if content:
+            history_str += f"{role}: {content}\n"
+    if not history_str:
+        history_str = "(Không có lịch sử)"
+
+    try:
+        system_msg = CLASSIFIER_PROMPT.format(history=history_str)
+        resp = await llm.chat(
+            messages=[LLMMessage(role="user", content=clean)],
+            system=system_msg,
+            temperature=0.0
+        )
+        content = resp.content.strip()
+        import re
+        data = {}
+        try:
+            # Remove markdown blocks if any
+            clean_content = re.sub(r'^```(?:json)?\n', '', content)
+            clean_content = re.sub(r'\n```$', '', clean_content)
+            clean_content = clean_content.strip()
+            
+            match = re.search(r'\{.*\}', clean_content, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+        except Exception as parse_err:
+            log.warning("intent_json_parse_failed", error=str(parse_err), content=content)
+            
+        if not data:
+            # Fallback string matching
+            cl = content.lower()
+            if "sales_inquiry" in cl:
+                data["intent"] = "sales_inquiry"
+            elif "booking_intent" in cl:
+                data["intent"] = "booking_intent"
+            elif "customer_support" in cl:
+                data["intent"] = "customer_support"
+            elif "chitchat" in cl:
+                data["intent"] = "chitchat"
+            else:
+                data["intent"] = "unknown"
+                
+        intent_str = data.get("intent", "unknown").lower()
+        rewritten = data.get("rewritten_query", clean)
+        
+        # Nếu LLM quyết định viết lại câu hỏi, cập nhật raw_query để RAG lấy đúng tài liệu
+        if rewritten and rewritten != clean:
+            log.info("query_rewritten", original=clean, rewritten=rewritten)
+            state["raw_query"] = rewritten
+        
+        # Map string to Enum
+        try:
+            intent = Intent(intent_str)
+        except ValueError:
+            intent = Intent.UNKNOWN
+            
+    except Exception as e:
+        log.error("intent_classification_failed", error=str(e), fallback="UNKNOWN")
+        intent = Intent.UNKNOWN
 
     state["intent"] = intent
     log.info(
@@ -86,4 +143,6 @@ def route_by_intent(state: AgentState) -> str:
         return "sales_node"        # Hỏi giá/tồn kho → sales
     if intent == Intent.CUSTOMER_SUPPORT:
         return "support_node"      # Hỏi thông tin dự án → RAG + QA
+    if intent == Intent.CHITCHAT:
+        return "synthesizer"       # Chitchat → trả lời ngay
     return "support_node"          # Unknown → thử support trước

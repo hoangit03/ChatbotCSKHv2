@@ -92,19 +92,13 @@ class QAVectorStore:
         """
         Semantic search trong Qdrant qa_pairs collection.
         Trả danh sách QAItem đã vượt ngưỡng cosine similarity, kèm score.
-        # Nếu project rỗng hoặc là placeholder từ Swagger, bỏ qua filter dự án để tìm rộng hơn"""
-        search_project = project
-        if not project or project.lower() in ["string", "", "none", "default"]:
-            search_project = None
-
+        """
         vec = await self._embed.embed_one(query)
         results = await self._vdb.search(
-
             vector=vec,
             top_k=top_k + 2,        # lấy dư để lọc threshold
-            filter=SearchFilter(project_name=search_project, status="active"),
+            filter=SearchFilter(project_name=project, status="active"),
         )
-
 
         items: list[QAItem] = []
         for r in results:
@@ -154,8 +148,9 @@ class QAVectorStore:
                     "doc_group":     i.doc_group or "",
                     "text":          i.question,   # compat với SearchResult.text
                     "document_code": i.project_name,   # dùng cho delete_by_document
-                    "type":          "qa",
+                    "source_type":   "qa",
                 },
+
             )
             for i, v in zip(items, vectors)
         ]
@@ -199,21 +194,19 @@ class QAVectorStore:
         ]
 
     async def deactivate(self, qa_id: str) -> bool:
-        """Soft-delete: đặt status='superseded' trong Qdrant payload."""
+        """
+        Soft-delete: đánh dấu status='superseded'.
+        Dùng deactivate_point() nếu VectorPort hỗ trợ (DIP) — fallback graceful.
+        """
         try:
-            from app.infrastructure.vector.qdrant_adapter import QdrantAdapter
-            if isinstance(self._vdb, QdrantAdapter):
-                client = self._vdb._get_client()
-                from qdrant_client.models import PointIdsList
-                await client.set_payload(
-                    collection_name=self._vdb._collection,
-                    payload={"status": "superseded"},
-                    points=PointIdsList(points=[qa_id]),
-                )
-            return True
+            deactivate_fn = getattr(self._vdb, "deactivate_point", None)
+            if deactivate_fn:
+                return await deactivate_fn(qa_id)
+            log.warning("qa_deactivate_not_supported", vdb=type(self._vdb).__name__)
+            return False
         except Exception as e:
             log.error("qa_deactivate_failed", qa_id=qa_id, error=str(e))
-        return False
+            return False
 
 
 # ─────────────────────────────────────────────────────────────────
