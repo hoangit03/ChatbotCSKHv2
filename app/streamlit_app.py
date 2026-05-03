@@ -163,7 +163,7 @@ def apply_custom_style():
 # ─────────────────────────────────────────────────────────────────
 
 class ChatbotAPI:
-    def __init__(self, base_url="http://localhost:8000", api_key="dev-secret-key"):
+    def __init__(self, base_url="http://localhost:8000", api_key="chatbot-ctlotus"):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(timeout=60.0)
@@ -226,7 +226,7 @@ def init_session_state():
     if "api_url" not in st.session_state:
         st.session_state.api_url = "http://localhost:8000"
     if "api_key" not in st.session_state:
-        st.session_state.api_key = "dev-secret-key"
+        st.session_state.api_key = "chatbot-ctlotus"
 
 def render_sidebar(api_client: ChatbotAPI):
     with st.sidebar:
