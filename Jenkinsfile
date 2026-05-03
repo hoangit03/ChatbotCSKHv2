@@ -28,7 +28,7 @@ pipeline {
             steps {
                 sh """
                     cd ${PROJECT_DIR}
-                    docker compose up -d --build --force-recreate
+                    docker-compose up -d --build --force-recreate
                 """
             }
         }
