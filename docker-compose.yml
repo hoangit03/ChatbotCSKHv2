@@ -1,43 +1,32 @@
-version: "3.9"
-
 # ══════════════════════════════════════════════════════════════
-# Real Estate Chatbot — Agent RAG
-# Chạy: docker-compose up -d
+# ChatbotCSKHv2 — App Layer ONLY (Tầng 3)
+# Sử dụng Core AI (Tầng 1) + Shared Infra (Tầng 2)
+# qua global_proxy_network — KHÔNG chạy Qdrant/Postgres/Redis riêng
 # ══════════════════════════════════════════════════════════════
 
 services:
 
-  # ── Application ───────────────────────────────────────────────
+  # ── Application API ──────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
     image: chatbotcskhv2-api
-    container_name: rag_api
-    env_file: .env # load toàn bộ config từ .env
+    container_name: cskh_api
+    env_file: .env
     ports:
       - "8006:8000"
     volumes:
-      - doc_storage:/app/storage/documents # file tài liệu persistent
-    depends_on:
-      qdrant:
-        condition: service_started
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
+      - doc_storage:/app/storage/documents
     restart: unless-stopped
     networks:
-      - rag_internal
       - global_proxy_network
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
-    # Resource limits — điều chỉnh theo server
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -45,98 +34,29 @@ services:
         reservations:
           memory: 512M
 
-  # ── Streamlit Frontend ────────────────────────────────────────
+  # ── Streamlit Frontend ───────────────────────────────────────
   frontend:
     image: chatbotcskhv2-api
-    container_name: rag_frontend
+    container_name: cskh_frontend
     env_file: .env
     environment:
       - API_BASE_URL=http://api:8000
     ports:
-      - "${APP_PORT:-8005}:8501"
+      - "8005:8501"
     command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - rag_internal
       - global_proxy_network
-
-  # ── Vector DB (Qdrant) ────────────────────────────────────────
-  qdrant:
-    image: qdrant/qdrant:v1.11.0
-    container_name: rag_qdrant
-    ports:
-      - "6333:6333" # REST API
-      - "6334:6334" # gRPC (tuỳ chọn)
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      # Map từ QDRANT_API_KEY trong .env
-      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
-      QDRANT__LOG_LEVEL: INFO
-    restart: unless-stopped
-    networks:
-      - rag_internal
-
-  # ── PostgreSQL (metadata, logs, Q&A production) ───────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: rag_postgres
-    environment:
-      POSTGRES_DB: ragdb
-      POSTGRES_USER: ${DB_USER:-raguser}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragpassword}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - rag_internal
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-raguser} -d ragdb" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── Redis (rate limit + cache) ────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: rag_redis
-    command: >
-      redis-server --requirepass ${REDIS_PASSWORD:-redispassword} --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - rag_internal
-    healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispassword}", "ping" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 # ── Volumes ───────────────────────────────────────────────────
 volumes:
-  qdrant_data:
-    driver: local
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
   doc_storage:
     driver: local
 
-# ── Network riêng — isolate khỏi mạng ngoài ──────────────────
+# ── Dùng chung global_proxy_network với Core Infra ─────────────
 networks:
-  rag_internal:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
   global_proxy_network:
     external: true
