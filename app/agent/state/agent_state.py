@@ -71,6 +71,7 @@ class AgentState(TypedDict):
       fallback_reason: lý do fallback
       iteration      : số iteration hiện tại
       error          : lỗi nếu có
+      tool_kwargs    : arguments trích xuất từ LLM cho các tool
     """
     messages: list
     session_id: str
@@ -93,6 +94,7 @@ class AgentState(TypedDict):
     project_newly_confirmed: bool       # True khi guard vừa switch sang project mới
     customer_name: Optional[str]        # Tên khách hàng (từ ChatRequest)
     customer_phone: Optional[str]       # SĐT khách hàng (từ ChatRequest)
+    tool_kwargs: dict                   # Lưu params cho tools
 
 
 
@@ -126,4 +128,5 @@ def make_initial_state(
         project_newly_confirmed=False,
         customer_name=customer_name,
         customer_phone=customer_phone,
+        tool_kwargs={},
     )

@@ -13,8 +13,8 @@ LangGraph sẽ gọi ChatPort.chat() — không biết provider là gì.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import AsyncIterator
+from dataclasses import dataclass, field
+from typing import AsyncIterator, Any
 
 
 @dataclass
@@ -33,6 +33,7 @@ class LLMResponse:
     input_tokens: int
     output_tokens: int
     stop_reason: str   # "end_turn" | "max_tokens" | "tool_use"
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class ChatPort(ABC):
@@ -48,6 +49,7 @@ class ChatPort(ABC):
         system: str = "",
         temperature: float | None = None,
         max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         """Gửi messages, nhận response. Không streaming."""
         ...

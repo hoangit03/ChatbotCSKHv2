@@ -52,8 +52,8 @@ class AvailabilityTool(AgentTool):
         return "Kiểm tra căn hộ còn trống không. Dùng khi hỏi 'còn căn không', 'căn X còn chưa'."
 
     async def run(self, state: AgentState) -> ToolResult:
-        # Trích unit_code từ query nếu có (e.g. "căn A1-05")
-        unit_code = _extract_unit_code(state["raw_query"])
+        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+        unit_code = kwargs.get("unit_code")
         try:
             units = await self._api.get_unit_availability(
                 project=_project(state),
@@ -170,14 +170,14 @@ class UnitSearchTool(AgentTool):
         return "Tìm căn hộ theo tiêu chí: số phòng ngủ, diện tích, giá tối đa."
 
     async def run(self, state: AgentState) -> ToolResult:
-        query = state["raw_query"]
-        bedrooms = _extract_bedrooms(query)
-        min_price = _extract_min_price(query)
-        max_price = _extract_max_price(query)
-        min_area = _extract_min_area(query)
-        max_area = _extract_max_area(query)
-        floor = _extract_floor(query)
-        direction = _extract_direction(query)
+        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+        bedrooms = kwargs.get("bedrooms")
+        min_price = kwargs.get("min_price_vnd")
+        max_price = kwargs.get("max_price_vnd")
+        min_area = kwargs.get("min_area_m2")
+        max_area = kwargs.get("max_area_m2")
+        floor = kwargs.get("floor")
+        direction = kwargs.get("direction")
 
         try:
             units = await self._api.search_units(
@@ -230,11 +230,13 @@ class BookingIntentTool(AgentTool):
         return "Gửi yêu cầu đặt cọc/giữ chỗ khi khách hàng đã quyết định mua."
 
     async def run(self, state: AgentState) -> ToolResult:
-        # Lấy thông tin khách từ state (đã thu thập trước đó)
+        # Lấy thông tin từ state
         sales_data = state.get("sales_data", {})
-        customer_name = sales_data.get("customer_name", "")
-        customer_phone = sales_data.get("customer_phone", "")
-        unit_code = sales_data.get("selected_unit_code", "")
+        customer_name = state.get("customer_name") or sales_data.get("customer_name", "")
+        customer_phone = state.get("customer_phone") or sales_data.get("customer_phone", "")
+        
+        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+        unit_code = kwargs.get("unit_code") or sales_data.get("selected_unit_code", "")
 
         if not all([customer_name, customer_phone, unit_code]):
             return ToolResult(
@@ -263,51 +265,5 @@ class BookingIntentTool(AgentTool):
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-def _extract_unit_code(text: str) -> Optional[str]:
-    m = re.search(r"\b([A-Z]\d{1,2}-\d{2,3})\b", text, re.IGNORECASE)
-    return m.group(1).upper() if m else None
-
-
-def _extract_bedrooms(text: str) -> Optional[int]:
-    m = re.search(r"(\d)\s*(?:phòng ngủ|pn|bedroom|br)", text, re.IGNORECASE)
-    return int(m.group(1)) if m else None
-
-
-def _extract_max_price(text: str) -> Optional[float]:
-    # "dưới 5 tỷ", "max 3.5 tỷ", "không quá 4 tỷ"
-    m = re.search(
-        r"(?:dưới|không quá|tối đa|max|<)\s*(\d+(?:[.,]\d+)?)\s*(tỷ|triệu)",
-        text,
-        re.IGNORECASE,
-    )
-    if not m:
-        return None
-    val = float(m.group(1).replace(",", "."))
-    unit = m.group(2).lower()
-    return val * 1_000_000_000 if "tỷ" in unit else val * 1_000_000
-
-def _extract_min_price(text: str) -> Optional[float]:
-    m = re.search(r"(?:từ|trên|>)\s*(\d+(?:[.,]\d+)?)\s*(tỷ|triệu)", text, re.IGNORECASE)
-    if not m: return None
-    val = float(m.group(1).replace(",", "."))
-    unit = m.group(2).lower()
-    return val * 1_000_000_000 if "tỷ" in unit else val * 1_000_000
-
-def _extract_floor(text: str) -> Optional[str]:
-    m = re.search(r"tầng\s*(\d{1,3}[a-zA-Z]?)", text, re.IGNORECASE)
-    return m.group(1).upper() if m else None
-
-def _extract_direction(text: str) -> Optional[str]:
-    directions = ["đông nam", "tây nam", "đông bắc", "tây bắc", "đông tứ trạch", "tây tứ trạch", "đông", "tây", "nam", "bắc"]
-    for d in directions:
-        if re.search(rf"\b{d}\b", text, re.IGNORECASE):
-            return d.capitalize()
-    return None
-
-def _extract_min_area(text: str) -> Optional[float]:
-    m = re.search(r"(?:từ|trên|>)\s*(\d+(?:[.,]\d+)?)\s*m2", text, re.IGNORECASE)
-    return float(m.group(1).replace(",", ".")) if m else None
-
-def _extract_max_area(text: str) -> Optional[float]:
-    m = re.search(r"(?:dưới|không quá|tối đa|<)\s*(\d+(?:[.,]\d+)?)\s*m2", text, re.IGNORECASE)
-    return float(m.group(1).replace(",", ".")) if m else None
+# Helper regex functions have been removed. We now rely on LLM Native Tool Calling
+# to extract parameters into state["tool_kwargs"].

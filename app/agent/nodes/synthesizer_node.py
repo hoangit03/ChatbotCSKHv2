@@ -165,38 +165,39 @@ class SynthesizerNode:
     def _build_context(self, state: AgentState) -> str:
         """
         Xây dựng context cho LLM từ tất cả nguồn.
-        Thứ tự ưu tiên:
-          1. Q&A chunks (source_type="qa") — câu trả lời chuẩn
-          2. Document chunks — thông tin chi tiết từ tài liệu
-          3. Sales API data — dữ liệu real-time
+        Thứ tự ưu tiên MỚI:
+          1. Sales API data — dữ liệu real-time (Quan trọng nhất để chốt sale)
+          2. Q&A chunks (source_type="qa") — câu trả lời chuẩn
+          3. Document chunks — thông tin chi tiết từ tài liệu
         """
         parts: list[str] = []
         MAX_CONTEXT_CHARS = 6000  # Giới hạn ~1500 tokens để tổng prompt (Context + History) luôn nằm an toàn dưới 2048 tokens.
 
+        # 1. Ưu tiên cao nhất: Sales API context
+        sales = state.get("sales_data", {})
+        if sales:
+            sales_text = json.dumps(sales, ensure_ascii=False, indent=2)
+            parts.append(f"=== DỮ LIỆU TỪ HỆ THỐNG BÁN HÀNG ===\n{sales_text}")
+
+        # 2 & 3. RAG Results
         rag = state.get("rag_results", [])
         if rag:
             # Tách Q&A chunks và document chunks
             qa_chunks  = [r for r in rag if r.get("source_type") == "qa"]
             doc_chunks = [r for r in rag if r.get("source_type") != "qa"]
 
-            # Q&A chunks — đặt đầu tiên với label ưu tiên
+            # Q&A chunks
             if qa_chunks:
                 qa_text = "\n\n".join(r["text"] for r in qa_chunks)
                 parts.append(f"=== CÂU TRẢ LỜI CHUẨN (Q&A) ===\n{qa_text}")
 
-            # Document chunks — bổ sung thông tin chi tiết
+            # Document chunks
             if doc_chunks:
                 doc_text = "\n\n".join(
                     f"[Tài liệu: {r.get('document_name', '')} — {r.get('doc_group', '')}]\n{r['text']}"
                     for r in doc_chunks
                 )
                 parts.append(f"=== TÀI LIỆU DỰ ÁN ===\n{doc_text}")
-
-        # Sales API context
-        sales = state.get("sales_data", {})
-        if sales:
-            sales_text = json.dumps(sales, ensure_ascii=False, indent=2)
-            parts.append(f"=== DỮ LIỆU TỪ HỆ THỐNG BÁN HÀNG ===\n{sales_text}")
 
         full_context = "\n\n".join(parts)
         if len(full_context) > MAX_CONTEXT_CHARS:
