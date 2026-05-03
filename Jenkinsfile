@@ -62,7 +62,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 sh """
-                    RESPONSE=\$(curl -sf ${HEALTH_URL} || echo "FAILED")
+                    RESPONSE=\$(docker exec ${APP_CONTAINER} curl -sf http://localhost:8000/health || echo "FAILED")
                     echo "Health response: \$RESPONSE"
                     echo \$RESPONSE | grep -q '"healthy"' || (echo "❌ Smoke test failed!" && exit 1)
                     echo "✅ Smoke test passed!"
