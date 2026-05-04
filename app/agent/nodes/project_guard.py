@@ -39,8 +39,29 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
     current_project = state.get("project_name")
     query = state.get("raw_query", "")
 
-    vdb = registry.get_vdb()
-    available_projects = await vdb.list_unique_projects()
+    # [NEW] Nếu là Chitchat (chào hỏi), cho phép đi qua ngay để Synthesizer trả lời tự nhiên
+    from app.agent.state.agent_state import Intent
+    if state.get("intent") == Intent.CHITCHAT:
+        log.info("project_guard_bypassed_for_chitchat", session=state.get("session_id"))
+        return state
+
+    # ── 1. Lấy danh sách dự án hiện có ──
+    # Ưu tiên từ Sales API (Source of truth) qua ProjectListTool
+    project_tool = registry.get("list_projects")
+    available_projects = []
+    if project_tool:
+        res = await project_tool.run(state)
+        if res.success:
+            available_projects = res.data
+
+    # Fallback sang Vector DB nếu API lỗi hoặc không có dự án
+    if not available_projects:
+        vdb = registry.get_vdb()
+        available_projects = await vdb.list_unique_projects()
+
+    # [NEW] Đảm bảo toàn bộ project_name là string để tránh lỗi join()
+    if available_projects:
+        available_projects = [str(p) for p in available_projects if p]
     
     detected_project = None
 
@@ -79,6 +100,13 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
             current_project = detected_project
         else:
             log.info("project_confirmed_in_query", project=detected_project)
+
+    # ── [NEW] Cho phép đi qua nếu là yêu cầu liệt kê dự án ──────────
+    # Giúp SalesNode có thể gọi tool list_projects
+    global_keywords = ["bao nhiêu dự án", "danh sách dự án", "kể tên dự án", "có những dự án nào", "dự án hiện tại"]
+    if any(k in query.lower() for k in global_keywords):
+        log.info("project_guard_bypassed_for_listing", query=query)
+        return state
 
     # ── 2. Kiểm tra nếu vẫn chưa có dự án nào (cả trong state lẫn session) ──
     if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:

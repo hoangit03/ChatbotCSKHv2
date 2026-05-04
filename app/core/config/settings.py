@@ -88,9 +88,9 @@ class Settings(BaseSettings):
     # ── Q&A Auto-load (DEPRECATED - Moved to API) ─────────────────
     # Prompt gợi ý dự án khi chưa xác định được
     project_suggestion_prompt: str = (
-        "Chào bạn! Để em hỗ trợ mình thông tin chính xác nhất về bảng giá và pháp lý, "
-        "mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
-        "Hiện em có thông tin chi tiết về các dự án: {projects}."
+        "Chào bạn! Rất vui được hỗ trợ mình. Để em có thể cung cấp thông tin chính xác nhất "
+        "về bảng giá, pháp lý và ưu đãi, mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
+        "Hiện em đang có thông tin chi tiết về: {projects}."
     )
 
     # ── Sales API toggle ──────────────────────────────────────────

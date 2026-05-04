@@ -253,22 +253,27 @@ def render_sidebar(api_client: ChatbotAPI):
         
         # Project Selection
         st.markdown("### 📌 Bối cảnh dự án")
-        projects = api_client.get_projects()
-        if not projects:
-            projects = ["Đang tải danh sách..."]
+        raw_projects = api_client.get_projects()
+        projects = ["Tất cả dự án"] + raw_projects if raw_projects else ["Tất cả dự án"]
             
-        current_project = st.session_state.get("project_name", projects[0] if projects else "")
+        current_selection = st.session_state.get("project_selection", "Tất cả dự án")
         try:
-            default_idx = projects.index(current_project)
+            default_idx = projects.index(current_selection)
         except ValueError:
             default_idx = 0
             
-        st.session_state.project_name = st.selectbox(
+        st.session_state.project_selection = st.selectbox(
             "Chọn dự án để Agent tập trung hỗ trợ:",
             projects,
             index=default_idx,
             label_visibility="collapsed"
         )
+        
+        # Map selection to project_name for API
+        if st.session_state.project_selection == "Tất cả dự án":
+            st.session_state.project_name = None
+        else:
+            st.session_state.project_name = st.session_state.project_selection
         
         st.markdown("<hr style='border-color: #334155; margin: 25px 0;'>", unsafe_allow_html=True)
         
@@ -347,6 +352,7 @@ def render_chat_interface(api_client: ChatbotAPI):
                     sources = response.get("sources", [])
                     tool_calls = response.get("tool_calls", [])
                     detected_project = response.get("project_name")
+                    sales_data = response.get("sales_data", {})
                     
                     # Agent tự động nhận diện dự án mới và báo cho UI
                     if detected_project and detected_project != st.session_state.project_name:
@@ -354,7 +360,33 @@ def render_chat_interface(api_client: ChatbotAPI):
                         st.toast(f"Hệ thống đã tự động chuyển bối cảnh sang dự án: **{detected_project}**", icon="🎯")
 
                     st.markdown(answer)
-                    
+
+                    # [NEW] Hiển thị danh sách dự án dưới dạng nút bấm nếu có
+                    project_list = sales_data.get("project_list", [])
+                    if project_list:
+                        st.markdown("---")
+                        st.markdown("### 🎯 Dự án đề xuất")
+                        cols = st.columns(min(len(project_list), 4))
+                        for idx, p_name in enumerate(project_list):
+                            if cols[idx % 4].button(f"Chọn: {p_name}", key=f"btn_{p_name}_{idx}"):
+                                st.session_state.project_name = p_name
+                                st.toast(f"Đã chọn dự án: {p_name}")
+                                # Tự động gửi tin nhắn cho agent
+                                response = api_client.send_message(
+                                    message=f"Tôi muốn tìm hiểu về dự án {p_name}",
+                                    session_id=st.session_state.session_id,
+                                    project_name=p_name
+                                )
+                                if response:
+                                    st.session_state.messages.append({"role": "user", "content": f"Tôi muốn tìm hiểu về dự án {p_name}"})
+                                    st.session_state.messages.append({
+                                        "role": "assistant",
+                                        "content": response["answer"],
+                                        "sources": response.get("sources", []),
+                                        "tool_calls": response.get("tool_calls", [])
+                                    })
+                                    st.rerun()
+
                     # Lưu lại
                     st.session_state.messages.append({
                         "role": "assistant",

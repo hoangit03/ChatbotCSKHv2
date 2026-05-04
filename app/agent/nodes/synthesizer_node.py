@@ -19,20 +19,19 @@ from app.shared.logging.logger import get_logger
 log = get_logger(__name__)
 
 # ── System prompt ──────────────────────────────────────────────────
-SYSTEM_PROMPT = """Bạn là trợ lý AI thông minh tên là 'chatbot CTlotus' của công ty bất động sản. 
-Nhiệm vụ của bạn là hỗ trợ khách hàng tìm hiểu về dự án: {project_name}, hỗ trợ bán hàng và giải đáp thắc mắc.
+SYSTEM_PROMPT = """Bạn là trợ lý AI thông minh tên là 'chatbot CTlotus' của công ty bất động sản CT Group. 
+Nhiệm vụ của bạn là hỗ trợ khách hàng tìm hiểu về các dự án bất động sản (như {project_name}), hỗ trợ bán hàng và giải đáp thắc mắc.
 
 PHONG CÁCH GIAO TIẾP:
-1. Giao tiếp tự nhiên, thân thiện và linh hoạt. Tuyệt đối không trả lời máy móc hoặc dùng mãi một câu kết thúc rập khuôn.
-2. Nếu là câu hỏi xã giao (chào hỏi, hỏi tên, toán học cơ bản), hãy trả lời vui vẻ, ngắn gọn và mời khách hỏi về dự án nếu cần.
-3. Luôn giữ thái độ lịch sự nhưng gần gũi, như một chuyên viên tư vấn thực thụ.
+1. Giao tiếp tự nhiên, thân thiện, chuyên nghiệp và linh hoạt. Tuyệt đối không trả lời máy móc.
+2. Nếu khách chào hỏi xã giao, hãy chào lại một cách nồng nhiệt, giới thiệu ngắn gọn về mình và khéo léo hỏi xem khách đang quan tâm đến dự án nào hoặc khu vực nào để bạn hỗ trợ.
+3. Luôn giữ thái độ của một chuyên viên tư vấn cao cấp: am hiểu, tận tâm và chủ động.
 
 NGUYÊN TẮC NỘI DUNG:
-1. Đối với thông tin dự án {project_name}: Hãy sử dụng dữ liệu CONTEXT được cung cấp để trả lời. Nếu dữ liệu có phần trùng khớp (dù ít), hãy cố gắng suy luận để trả lời tự nhiên nhất thay vì từ chối.
-2. NẾU KHÁCH CHỈ CHÀO HOẶC QUAN TÂM CHUNG CHUNG (ví dụ: "chào bạn", "tôi quan tâm dự án", "dự án này ở đâu"): Hãy chào mừng, giới thiệu ngắn gọn và HỎI XEM khách cần tìm hiểu cụ thể về mảng nào (pháp lý, giá bán, tiến độ...). TUYỆT ĐỐI KHÔNG báo lỗi "chưa có thông tin" trong trường hợp này.
-3. CHỈ KHI khách hỏi một CÂU HỎI CHI TIẾT (ví dụ: "giá bao nhiêu", "tiến độ đến đâu") mà trong CONTEXT hoàn toàn KHÔNG CÓ dữ liệu, bạn mới từ chối khéo léo và mời khách để lại SĐT để chuyên viên hỗ trợ.
-4. Luôn ưu tiên "Bộ Q&A chuẩn" nếu có thông tin khớp.
-5. Trả lời bằng đúng ngôn ngữ của khách hàng.
+1. Đối với thông tin dự án {project_name}: Hãy sử dụng dữ liệu CONTEXT được cung cấp để trả lời. Nếu chưa rõ dự án cụ thể, hãy giới thiệu tổng quan về các dự án tiêu biểu của CT Group (như Metro Star, Shizen Home...).
+2. NẾU KHÁCH CHỈ CHÀO HOẶC QUAN TÂM CHUNG CHUNG: Chào mừng khách đến với CT Group, giới thiệu bạn là trợ lý ảo sẵn sàng hỗ trợ thông tin về các dự án và hỏi xem khách cần tìm hiểu về mảng nào (pháp lý, giá bán, tiến độ...).
+3. KHÔNG báo lỗi "chưa có thông tin" khi khách chỉ đang chào hỏi hoặc hỏi chung chung.
+4. Trả lời bằng đúng ngôn ngữ của khách hàng.
 
 NGUYÊN TẮC BÁN HÀNG (SALES):
 1. KHI CÓ DỮ LIỆU TỪ HỆ THỐNG BÁN HÀNG (Inventory/Search/Availability): Hãy thể hiện vai trò là người tư vấn. Nếu có thông tin `total_price`, `maintenance_fee`, hãy báo giá chi tiết và minh bạch.
@@ -109,16 +108,26 @@ class SynthesizerNode:
         )
         try:
             # Format system prompt với tên dự án thực tế
-            project_name = state.get("project_name", "dự án")
-            system_msg = SYSTEM_PROMPT.format(project_name=project_name)
+            p_name = state.get("project_name")
+            project_label = p_name if p_name and p_name.lower() not in ["", "none", "unknown"] else "các dự án của CT Group"
+            system_msg = SYSTEM_PROMPT.format(project_name=project_label)
             
             # Nếu dự án vừa được xác nhận mới, thêm yêu cầu chào mừng vào prompt
             if state.get("project_newly_confirmed"):
                 system_msg += (
-                    f"\nLƯU Ý QUAN TRỌNG: Khách hàng vừa nhắc đến dự án {project_name}. "
+                    f"\nLƯU Ý QUAN TRỌNG: Khách hàng vừa nhắc đến dự án {p_name}. "
                     f"Hãy bắt đầu câu trả lời bằng một câu chào thân thiện như: "
-                    f"'Cảm ơn bạn đã quan tâm về dự án {project_name}, chúng tôi có thể giúp gì cho bạn' "
+                    f"'Cảm ơn bạn đã quan tâm về dự án {p_name}, chúng tôi có thể giúp gì cho bạn' "
                     f"hoặc tương tự, sau đó mới trả lời câu hỏi của khách."
+                )
+
+            # Nếu Price Guard chặn tiết lộ giá (Giai đoạn 1)
+            if state.get("sales_data", {}).get("price_disclosure_blocked"):
+                system_msg += (
+                    f"\nLƯU Ý VỀ GIÁ: Khách hàng đang hỏi về giá hoặc căn hộ cụ thể ở giai đoạn đầu. "
+                    f"Theo chiến lược, bạn KHÔNG cung cấp giá chi tiết ngay. "
+                    f"Hãy giải thích khéo léo rằng dự án đang có nhiều chính sách ưu đãi linh hoạt "
+                    f"và mời khách hàng đến xem sa bàn/nhà mẫu để có báo giá chính xác nhất kèm quà tặng."
                 )
 
             try:

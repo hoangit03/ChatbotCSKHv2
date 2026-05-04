@@ -3,6 +3,12 @@ app/core/interfaces/sales_api_port.py
 
 Contract với hệ thống backend bán hàng (external API).
 
+CHANGELOG v2:
+  + AppointmentSlot DTO    — khung giờ xem nhà mẫu còn trống
+  + AppointmentBookingResult DTO — kết quả đặt lịch hẹn
+  + SalesAPIPort.get_available_slots() — lấy khung giờ trống
+  + SalesAPIPort.book_appointment()    — đặt lịch hẹn xem nhà mẫu/sa bàn
+
 Nguyên tắc bảo mật:
   - API key KHÔNG truyền qua URL — gửi qua header X-Internal-Key
   - Tất cả request qua HTTPS (verify=True, không tắt)
@@ -63,6 +69,35 @@ class BookingResult:
     message: str
     unit_code: str
 
+@dataclass
+class AppointmentSlot:
+    """
+    Một khung giờ xem nhà mẫu / sa bàn còn trống.
+    Dùng cho flow Giai đoạn 1: chốt lịch hẹn thay vì bán nhà qua điện thoại.
+    """
+    slot_id: str
+    date: str               # ISO format: "2026-05-10"
+    time_start: str         # "09:00"
+    time_end: str           # "10:00"
+    location: str           # Tên Sale Gallery hoặc địa chỉ
+    available_spots: int    # Số chỗ còn trống trong khung giờ này
+    consultant_name: Optional[str] = None  # Chuyên viên phụ trách (nếu có)
+ 
+ 
+@dataclass
+class AppointmentBookingResult:
+    """
+    Kết quả sau khi đặt lịch hẹn xem nhà mẫu thành công.
+    Trả về confirmation_code để khách hàng tra cứu.
+    """
+    success: bool
+    appointment_id: str
+    confirmation_code: str  # Mã xác nhận gửi qua SMS/Zalo
+    message: str
+    scheduled_date: Optional[str] = None
+    scheduled_time: Optional[str] = None
+    location: Optional[str] = None
+    consultant_name: Optional[str] = None
 
 # ── Port ──────────────────────────────────────────────────────────
 
@@ -117,4 +152,41 @@ class SalesAPIPort(ABC):
         customer_phone: str,
     ) -> BookingResult:
         """Đăng ký quan tâm / đặt giữ chỗ."""
+        ...
+
+    @abstractmethod
+    async def get_available_slots(
+        self,
+        project: str,
+        preferred_date: Optional[str] = None,   # ISO date "2026-05-10"
+    ) -> list[AppointmentSlot]:
+        """
+        Lấy danh sách khung giờ xem nhà mẫu / sa bàn còn trống.
+        Dùng cho Giai đoạn 1: mục tiêu là chốt lịch hẹn, không bán qua điện thoại.
+        """
+        ...
+ 
+    @abstractmethod
+    async def book_appointment(
+        self,
+        project: str,
+        slot_id: str,
+        customer_name: str,
+        customer_phone: str,
+        num_guests: int = 1,
+        note: Optional[str] = None,
+    ) -> AppointmentBookingResult:
+        """
+        Đặt lịch hẹn xem nhà mẫu / sa bàn.
+ 
+        Khác với trigger_booking_intent (đặt cọc căn hộ thực).
+        Flow: khách quan tâm → xem sa bàn → xem nhà mẫu → đặt cọc.
+ 
+        Sau khi đặt thành công, hệ thống gửi SMS/Zalo xác nhận tự động.
+        """
+        ...
+
+    @abstractmethod
+    async def list_all_projects(self) -> list[str]:
+        """Lấy danh sách tất cả tên các dự án hiện có."""
         ...

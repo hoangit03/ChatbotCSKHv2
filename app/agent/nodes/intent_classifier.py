@@ -8,6 +8,7 @@ Dùng LLM (Zero-shot) để phân loại intent một cách linh hoạt, thay v�
 from __future__ import annotations
 
 import json
+from app.agent.nodes.stage_classifier import classify_customer_stage
 from app.agent.state.agent_state import AgentState, Intent
 from app.core.interfaces.llm_port import ChatPort, LLMMessage
 from app.shared.logging.logger import get_logger
@@ -20,8 +21,10 @@ Nhiệm vụ của bạn là:
 1. Đọc lịch sử hội thoại và câu hỏi mới nhất của khách hàng.
 2. Phân loại ý định của câu hỏi mới nhất vào 1 trong các nhóm sau:
    - "customer_support": Khách hỏi thông tin dự án, pháp lý, tiện ích, tiến độ, chính sách bán hàng.
-   - "sales_inquiry": Khách hỏi giá, bao nhiêu tiền, tồn kho, còn căn không.
+   - "sales_inquiry": Khách hỏi giá, bao nhiêu tiền, tồn kho, còn căn không, liệt kê danh sách các dự án.
    - "booking_intent": Khách thể hiện ý định muốn đặt cọc, giữ chỗ, mua căn, xác nhận mua.
+   - "appointment_intent" : Khách muốn đặt lịch hẹn ĐI XEM nhà mẫu, sa bàn, hoặc đồng ý đến văn phòng bán hàng. Ví dụ: "tôi muốn đi xem", "cuối tuần tôi có thể đến không", "book lịch xem nhà mẫu".
+   - "comparison_intent"  : Khách so sánh dự án này với dự án KHÁC hoặc hỏi "tại sao nên chọn dự án này". Đây là tín hiệu mua mạnh — khách đang ở giai đoạn cân nhắc cuối.
    - "chitchat": Khách chào hỏi, đồng ý/từ chối giao tiếp chung (vd: "có tôi muốn", "ok", "dạ"), hoặc các câu hỏi không liên quan đến BĐS.
    - "unknown": Không thể phân loại.
 3. Nếu câu hỏi mới nhất bị thiếu ngữ cảnh (ví dụ: "có tôi muốn", "cái đó giá bao nhiêu", "nó ở đâu"), hãy viết lại câu hỏi (rewritten_query) bằng cách kết hợp với lịch sử hội thoại để tạo thành một câu hoàn chỉnh, dùng để tìm kiếm tài liệu. Nếu câu hỏi đã đủ ý, giữ nguyên.
@@ -91,7 +94,11 @@ async def classify_intent(state: AgentState, llm: ChatPort) -> AgentState:
         if not data:
             # Fallback string matching
             cl = content.lower()
-            if "sales_inquiry" in cl:
+            if "appointment_intent" in cl:
+                data["intent"] = "appointment_intent"
+            elif "comparison_intent" in cl:
+                data["intent"] = "comparison_intent"
+            elif "sales_inquiry" in cl:
                 data["intent"] = "sales_inquiry"
             elif "booking_intent" in cl:
                 data["intent"] = "booking_intent"
@@ -127,6 +134,14 @@ async def classify_intent(state: AgentState, llm: ChatPort) -> AgentState:
         intent=intent.value,
         query_len=len(clean),
     )
+
+    state = classify_customer_stage(state)
+    log.info(
+        "stage_classified",
+        session=state.get("session_id"),
+        stage=state.get("customer_stage"),
+        signals=state.get("stage_signals", [])[:2],
+    )
     return state
 
 
@@ -141,6 +156,10 @@ def route_by_intent(state: AgentState) -> str:
         return "sales_node"        # Booking → thẳng vào sales
     if intent == Intent.SALES_INQUIRY:
         return "sales_node"        # Hỏi giá/tồn kho → sales
+    if intent == Intent.APPOINTMENT_INTENT:
+        return "sales_node"         # Đặt lịch hẹn → sales (AppointmentTool)
+    if intent == Intent.COMPARISON_INTENT:
+        return "sales_node"         # So sánh dự án → sales (USP Giai đoạn 3)
     if intent == Intent.CUSTOMER_SUPPORT:
         return "support_node"      # Hỏi thông tin dự án → RAG + QA
     if intent == Intent.CHITCHAT:

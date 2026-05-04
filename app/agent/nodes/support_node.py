@@ -38,13 +38,6 @@ class SupportNode:
         qa_tool = self._registry.get("qa_lookup")
         rag_tool = self._registry.get("rag_search")
 
-        # ── Pre-compute query embedding ──
-        if not state.get("query_embedding") and rag_tool:
-            try:
-                state["query_embedding"] = await rag_tool._embed.embed_one(state["raw_query"])
-            except Exception as e:
-                log.error("support_node_embed_failed", error=str(e))
-
         # ── Chạy song song Q&A và RAG ──
         tasks = []
         if qa_tool:

@@ -119,6 +119,7 @@ async def lifespan(app: FastAPI):
         InventoryTool,
         PaymentTool,
         UnitSearchTool,
+        ProjectListTool,
     )
 
     registry.register(QATool(store=qa_store))
@@ -138,6 +139,7 @@ async def lifespan(app: FastAPI):
         registry.register(PaymentTool(api=sales_api))
         registry.register(UnitSearchTool(api=sales_api))
         registry.register(BookingIntentTool(api=sales_api))
+        registry.register(ProjectListTool(api=sales_api))
         log.info("sales_tools_registered")
     else:
         log.warning(
