@@ -38,6 +38,16 @@ class SupportNode:
         qa_tool = self._registry.get("qa_lookup")
         rag_tool = self._registry.get("rag_search")
 
+        # ── Pre-compute embedding trước khi chạy song song ──
+        # Tránh race condition: cả QA + RAG đều gọi embed_one() nếu chưa có
+        if not state.get("query_embedding"):
+            from app.agent.tools.rag_tool import RAGTool
+            if isinstance(rag_tool, RAGTool):
+                query = state.get("raw_query", "")
+                if query:
+                    state["query_embedding"] = await rag_tool._embed.embed_one(query)
+                    log.debug("support_embedding_precomputed", query_len=len(query))
+
         # ── Chạy song song Q&A và RAG ──
         tasks = []
         if qa_tool:

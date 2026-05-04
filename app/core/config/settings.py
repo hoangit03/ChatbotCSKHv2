@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Key để gọi API trong dev/staging. Đặt trong .env: DEV_API_KEY=...
     dev_api_key: str = "chatbot-dev-key-2024"
 
+    # ── Brand / Persona ───────────────────────────────────────────
+    bot_name: str = "chatbot CTlotus"
+    company_name: str = "CT Group"
+
+    # ── CORS ──────────────────────────────────────────────────────
+    # Comma-separated origins. "*" cho dev, cụ thể domain cho production
+    cors_origins: str = "*"
+
     # ── LLM ──────────────────────────────────────────────────────
     llm_provider: LLMProvider = "anthropic"
     llm_model: str = "claude-opus-4-5"
@@ -111,12 +119,19 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse CORS origins từ comma-separated string."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
     def sales_api_configured(self) -> bool:
         """True nếu Sales API đã được cấu hình (không dùng placeholder URL)."""
-        _PLACEHOLDER = "https://sales-backend.internal.company.com"
+        url = self.sales_api_base_url.strip().rstrip("/")
         return (
             self.sales_api_enabled
-            and self.sales_api_base_url != _PLACEHOLDER
+            and url.startswith("http")
+            and "internal.company.com" not in url
+            and "example.com" not in url
             and bool(self.sales_api_key)
         )
 

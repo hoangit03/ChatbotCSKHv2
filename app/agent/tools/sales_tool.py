@@ -85,6 +85,22 @@ class AvailabilityTool(AgentTool):
     def description(self) -> str:
         return "Kiểm tra căn hộ còn trống không. Dùng khi hỏi 'còn căn không', 'căn X còn chưa'."
 
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "unit_code": {"type": "string", "description": "Mã căn hộ cần kiểm tra (ví dụ: A1-05, B02, C12-A)"}
+                    }
+                }
+            }
+        }
+
     async def run(self, state: AgentState) -> ToolResult:
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
         unit_code = kwargs.get("unit_code")
@@ -166,6 +182,17 @@ class InventoryTool(AgentTool):
     def description(self) -> str:
         return "Lấy tổng số căn hộ còn lại của dự án."
 
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {"type": "object", "properties": {}}
+            }
+        }
+
     async def run(self, state: AgentState) -> ToolResult:
         try:
             inv = await self._api.get_project_inventory(_project(state))
@@ -208,6 +235,17 @@ class PaymentTool(AgentTool):
     def description(self) -> str:
         return "Lấy chính sách thanh toán, vay vốn, trả góp của dự án."
 
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {"type": "object", "properties": {}}
+            }
+        }
+
     async def run(self, state: AgentState) -> ToolResult:
         try:
             policies = await self._api.get_payment_policies(_project(state))
@@ -237,6 +275,28 @@ class UnitSearchTool(AgentTool):
     @property
     def description(self) -> str:
         return "Tìm căn hộ theo tiêu chí: số phòng ngủ, diện tích, giá tối đa."
+
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "bedrooms": {"type": "integer", "description": "Số lượng phòng ngủ (vd: 1, 2, 3)"},
+                        "min_price_vnd": {"type": "number", "description": "Giá tối thiểu bằng VNĐ (vd: 3000000000 cho 3 tỷ)"},
+                        "max_price_vnd": {"type": "number", "description": "Giá tối đa bằng VNĐ (vd: 5000000000 cho 5 tỷ)"},
+                        "min_area_m2": {"type": "number", "description": "Diện tích tối thiểu (m2)"},
+                        "max_area_m2": {"type": "number", "description": "Diện tích tối đa (m2)"},
+                        "floor": {"type": "string", "description": "Tầng của căn hộ (vd: 8, 12A, 15)"},
+                        "direction": {"type": "string", "description": "Hướng của căn hộ (vd: Đông, Tây Nam)"}
+                    }
+                }
+            }
+        }
 
     async def run(self, state: AgentState) -> ToolResult:
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
@@ -294,6 +354,22 @@ class BookingIntentTool(AgentTool):
     @property
     def description(self) -> str:
         return "Gửi yêu cầu đặt cọc/giữ chỗ khi khách hàng đã quyết định mua."
+
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "unit_code": {"type": "string", "description": "Mã căn hộ muốn đặt cọc"}
+                    }
+                }
+            }
+        }
 
     async def run(self, state: AgentState) -> ToolResult:
         # Lấy thông tin từ state
@@ -398,6 +474,24 @@ class AppointmentTool(AgentTool):
             "Đặt lịch hẹn cho khách đến xem nhà mẫu hoặc sa bàn tại Sale Gallery. "
             "Dùng khi khách muốn 'đi xem', 'đặt lịch', 'book hẹn', 'cuối tuần đến được không'."
         )
+
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "preferred_date": {"type": "string", "description": "Ngày mong muốn ISO format: 2026-05-10"},
+                        "num_guests": {"type": "integer", "description": "Số người đi cùng (default: 1)"},
+                        "note": {"type": "string", "description": "Ghi chú thêm của khách"},
+                    }
+                }
+            }
+        }
  
     async def run(self, state: AgentState) -> ToolResult:
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
@@ -512,6 +606,17 @@ class ProjectListTool(AgentTool):
     @property
     def description(self) -> str:
         return "Lấy danh sách tất cả các dự án bất động sản hiện có."
+
+    @property
+    def tool_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {"type": "object", "properties": {}}
+            }
+        }
  
     async def run(self, state: AgentState) -> ToolResult:
         try:

@@ -41,6 +41,15 @@ class AgentTool(ABC):
         """Mô tả để LLM có thể chọn tool (nếu dùng LLM routing)."""
         ...
 
+    @property
+    def tool_schema(self) -> dict | None:
+        """
+        OpenAI function-calling schema cho tool này.
+        Override trong các Sales tools để auto-generate SALES_TOOLS_SCHEMA.
+        Return None nếu tool không expose schema cho LLM.
+        """
+        return None
+
     @abstractmethod
     async def run(self, state: AgentState) -> ToolResult:
         ...
@@ -110,3 +119,19 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return list(self._tools.keys())
+
+    def generate_schemas(self, tool_names: list[str] | None = None) -> list[dict]:
+        """
+        Auto-generate OpenAI function-calling schemas từ registered tools.
+        Chỉ trả về schema của tools có tool_schema != None.
+        Args:
+            tool_names: nếu chỉ định, chỉ generate cho các tools trong list.
+        """
+        schemas = []
+        for name, tool in self._tools.items():
+            if tool_names and name not in tool_names:
+                continue
+            schema = tool.tool_schema
+            if schema:
+                schemas.append(schema)
+        return schemas

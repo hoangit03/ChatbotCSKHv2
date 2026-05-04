@@ -57,19 +57,25 @@ class SalesAPIAdapter(SalesAPIPort):
             verify=True,   # KHÔNG tắt TLS
         )
         self._retries = max_retries
+
+        # Dynamic retry — dùng self._retries thay vì hardcode
+        _retry_cfg = retry(
+            retry=retry_if_exception_type(httpx.TransportError),
+            stop=stop_after_attempt(self._retries),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+        )
+        self._get = _retry_cfg(self._get)
+        self._post = _retry_cfg(self._post)
+
         log.info(
             "sales_api_init",
             base_url=base_url,
             api_key_preview=mask_value(api_key),
+            max_retries=max_retries,
         )
 
     # ── Internal helpers ──────────────────────────────────────────
 
-    @retry(
-        retry=retry_if_exception_type(httpx.TransportError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
         try:
             resp = await self._client.get(path, params=params)

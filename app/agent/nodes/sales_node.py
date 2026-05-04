@@ -54,116 +54,9 @@ CHIẾN LƯỢC: Xóa bỏ rủi ro, cung cấp số liệu pháp lý, tạo s�
 """,
 }
 
-SALES_TOOLS_SCHEMA = [
-    {
-        "type": "function",
-        "function": {
-            "name": "check_availability",
-            "description": "Kiểm tra căn hộ còn trống không. Dùng khi hỏi 'còn căn không', 'căn X còn chưa'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "unit_code": {
-                        "type": "string",
-                        "description": "Mã căn hộ cần kiểm tra (ví dụ: A1-05, B02, C12-A)"
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_inventory",
-            "description": "Lấy tổng số căn hộ còn lại của dự án.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_units",
-            "description": "Tìm căn hộ theo tiêu chí: số phòng ngủ, diện tích, giá tối đa.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "bedrooms": {"type": "integer", "description": "Số lượng phòng ngủ (vd: 1, 2, 3)"},
-                    "min_price_vnd": {"type": "number", "description": "Giá tối thiểu bằng VNĐ (vd: 3000000000 cho 3 tỷ)"},
-                    "max_price_vnd": {"type": "number", "description": "Giá tối đa bằng VNĐ (vd: 5000000000 cho 5 tỷ)"},
-                    "min_area_m2": {"type": "number", "description": "Diện tích tối thiểu (m2)"},
-                    "max_area_m2": {"type": "number", "description": "Diện tích tối đa (m2)"},
-                    "floor": {"type": "string", "description": "Tầng của căn hộ (vd: 8, 12A, 15)"},
-                    "direction": {"type": "string", "description": "Hướng của căn hộ (vd: Đông, Tây Nam)"}
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_payment_policy",
-            "description": "Lấy chính sách thanh toán, vay vốn, trả góp của dự án.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "booking_intent",
-            "description": "Gửi yêu cầu đặt cọc/giữ chỗ khi khách hàng đã quyết định mua.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "unit_code": {"type": "string", "description": "Mã căn hộ muốn đặt cọc"}
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "book_appointment",
-            "description": (
-                "Đặt lịch hẹn cho khách đến xem nhà mẫu hoặc sa bàn tại Sale Gallery. "
-                "Dùng khi khách muốn 'đi xem', 'đặt lịch', 'cuối tuần đến được không'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "preferred_date": {
-                        "type": "string",
-                        "description": "Ngày mong muốn ISO format: 2026-05-10 (nếu khách đề cập)",
-                    },
-                    "num_guests": {
-                        "type": "integer",
-                        "description": "Số người đi cùng (default: 1)",
-                    },
-                    "note": {
-                        "type": "string",
-                        "description": "Ghi chú thêm của khách",
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_projects",
-            "description": "Lấy danh sách tất cả các dự án bất động sản hiện có.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-]
+
+# SALES_TOOLS_SCHEMA — giờ được auto-generate từ ToolRegistry.generate_schemas()
+# Xem base_tool.py:ToolRegistry.generate_schemas() và sales_tool.py:tool_schema property
 
 class SalesNode:
     def __init__(self, registry: ToolRegistry, llm: ChatPort):
@@ -214,7 +107,7 @@ class SalesNode:
                 messages=[LLMMessage(role="user", content=query)],
                 system=system_prompt,
                 temperature=0.0,
-                tools=SALES_TOOLS_SCHEMA,
+                tools=self._registry.generate_schemas(),
             )
  
             tool_calls = resp.tool_calls or []

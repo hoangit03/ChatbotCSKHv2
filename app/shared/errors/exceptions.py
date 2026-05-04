@@ -29,7 +29,7 @@ class NotFoundError(AppError):
     code = "NOT_FOUND"
 
 
-class PermissionError(AppError):
+class ForbiddenError(AppError):
     http_status = 403
     code = "PERMISSION_DENIED"
 

@@ -18,8 +18,8 @@ from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
 
-# ── System prompt ──────────────────────────────────────────────────
-SYSTEM_PROMPT = """Bạn là trợ lý AI thông minh tên là 'chatbot CTlotus' của công ty bất động sản CT Group. 
+# ── System prompt — sử dụng template variables {bot_name}, {company_name}, {project_name} ──
+SYSTEM_PROMPT = """Bạn là trợ lý AI thông minh tên là '{bot_name}' của công ty bất động sản {company_name}. 
 Nhiệm vụ của bạn là hỗ trợ khách hàng tìm hiểu về các dự án bất động sản (như {project_name}), hỗ trợ bán hàng và giải đáp thắc mắc.
 
 PHONG CÁCH GIAO TIẾP:
@@ -28,8 +28,8 @@ PHONG CÁCH GIAO TIẾP:
 3. Luôn giữ thái độ của một chuyên viên tư vấn cao cấp: am hiểu, tận tâm và chủ động.
 
 NGUYÊN TẮC NỘI DUNG:
-1. Đối với thông tin dự án {project_name}: Hãy sử dụng dữ liệu CONTEXT được cung cấp để trả lời. Nếu chưa rõ dự án cụ thể, hãy giới thiệu tổng quan về các dự án tiêu biểu của CT Group (như Metro Star, Shizen Home...).
-2. NẾU KHÁCH CHỈ CHÀO HOẶC QUAN TÂM CHUNG CHUNG: Chào mừng khách đến với CT Group, giới thiệu bạn là trợ lý ảo sẵn sàng hỗ trợ thông tin về các dự án và hỏi xem khách cần tìm hiểu về mảng nào (pháp lý, giá bán, tiến độ...).
+1. Đối với thông tin dự án {project_name}: Hãy sử dụng dữ liệu CONTEXT được cung cấp để trả lời. Nếu chưa rõ dự án cụ thể, hãy giới thiệu tổng quan về các dự án tiêu biểu của {company_name} (như Metro Star, Shizen Home...).
+2. NẾU KHÁCH CHỈ CHÀO HOẶC QUAN TÂM CHUNG CHUNG: Chào mừng khách đến với {company_name}, giới thiệu bạn là trợ lý ảo sẵn sàng hỗ trợ thông tin về các dự án và hỏi xem khách cần tìm hiểu về mảng nào (pháp lý, giá bán, tiến độ...).
 3. KHÔNG báo lỗi "chưa có thông tin" khi khách chỉ đang chào hỏi hoặc hỏi chung chung.
 4. Trả lời bằng đúng ngôn ngữ của khách hàng.
 
@@ -107,10 +107,16 @@ class SynthesizerNode:
             question=state["raw_query"],
         )
         try:
-            # Format system prompt với tên dự án thực tế
+            # Format system prompt với tên dự án thực tế + brand từ settings
+            from app.core.config.settings import get_settings
+            _cfg = get_settings()
             p_name = state.get("project_name")
-            project_label = p_name if p_name and p_name.lower() not in ["", "none", "unknown"] else "các dự án của CT Group"
-            system_msg = SYSTEM_PROMPT.format(project_name=project_label)
+            project_label = p_name if p_name and p_name.lower() not in ["", "none", "unknown"] else f"các dự án của {_cfg.company_name}"
+            system_msg = SYSTEM_PROMPT.format(
+                project_name=project_label,
+                bot_name=_cfg.bot_name,
+                company_name=_cfg.company_name,
+            )
             
             # Nếu dự án vừa được xác nhận mới, thêm yêu cầu chào mừng vào prompt
             if state.get("project_newly_confirmed"):
