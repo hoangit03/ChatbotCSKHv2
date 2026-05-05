@@ -62,7 +62,7 @@ async def _get_available_projects(registry: ToolRegistry) -> list[str]:
     # Ưu tiên từ Sales API
     project_tool = registry.get("list_projects")
     if project_tool:
-        res = await project_tool.run({"raw_query": "", "project_name": ""})
+        res = await project_tool.run({"raw_query": "", "project_name": "", "sales_data": {}})
         if res.success and res.data:
             projects = [str(p) for p in res.data if p]
 
