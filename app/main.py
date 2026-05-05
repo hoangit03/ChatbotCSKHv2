@@ -114,11 +114,13 @@ async def lifespan(app: FastAPI):
     registry = ToolRegistry(vdb=vector_db)
 
     from app.agent.tools.sales_tool import (
+        AppointmentTool,
         AvailabilityTool,
         BookingIntentTool,
         InventoryTool,
         PaymentTool,
         UnitSearchTool,
+        ProjectListTool,
     )
 
     registry.register(QATool(store=qa_store))
@@ -138,6 +140,8 @@ async def lifespan(app: FastAPI):
         registry.register(PaymentTool(api=sales_api))
         registry.register(UnitSearchTool(api=sales_api))
         registry.register(BookingIntentTool(api=sales_api))
+        registry.register(ProjectListTool(api=sales_api))
+        registry.register(AppointmentTool(api=sales_api))
         log.info("sales_tools_registered")
     else:
         log.warning(
@@ -238,17 +242,10 @@ Câu hỏi → Intent Classifier → Support Node (RAG + Q&A)
 # MIDDLEWARE (thứ tự: ngoài → trong)
 # ─────────────────────────────────────────────────────────────────
 
-# 1. CORS
-_origins = (
-    ["*"]
-    if not cfg.is_production
-    else [
-        "https://your-frontend.company.com",   # ← đổi theo domain thực
-    ]
-)
+# 1. CORS — từ settings (CORS_ORIGINS trong .env)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=cfg.cors_origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],

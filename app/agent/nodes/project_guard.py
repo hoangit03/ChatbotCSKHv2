@@ -5,10 +5,15 @@ Node: Project Guard (Người gác cổng).
 Nhiệm vụ: 
   - Đảm bảo state["project_name"] được xác định.
   - Nếu chưa có: trích xuất từ query bằng LLM.
+
+Tối ưu:
+  - Cache danh sách dự án (TTL 5 phút) — tránh gọi API mỗi request
+  - Chỉ chạy LLM NER khi cần (chưa có project hoặc detect keyword chuyển dự án)
 """
 from __future__ import annotations
 
 import json
+import time
 from app.agent.state.agent_state import AgentState
 from app.agent.tools.base_tool import ToolRegistry
 from app.core.config.settings import get_settings
@@ -27,6 +32,61 @@ Bạn PHẢI trả về JSON với định dạng sau, không kèm bất kỳ ma
 {{"found": true_hoặc_false, "project_name": "Tên_dự_án_chính_xác_trong_danh_sách_nếu_có_ngược_lại_để_trống"}}
 """
 
+# ── Keywords bypass — cho phép đi qua khi hỏi về danh sách dự án ──
+_PROJECT_LISTING_KEYWORDS = [
+    "bao nhiêu dự án", "danh sách dự án", "kể tên dự án",
+    "có những dự án nào", "dự án hiện tại", "liệt kê dự án",
+    "show me projects", "dự án nào đang", "dự án gì", "các dự án",
+    "tất cả dự án", "mấy dự án",
+]
+
+# ── Keywords gợi ý khách đang chuyển/nhắc tên dự án khác ──
+_PROJECT_SWITCH_HINTS = [
+    "dự án", "tìm hiểu về", "chuyển sang", "hỏi về",
+    "quan tâm", "muốn xem", "thông tin",
+]
+
+# ── Project List Cache (module-level, shared across requests) ──
+_project_cache: dict = {"projects": [], "ts": 0.0}
+_CACHE_TTL = 300  # 5 phút
+
+
+async def _get_available_projects(registry: ToolRegistry) -> list[str]:
+    """Lấy danh sách dự án với cache TTL 5 phút."""
+    now = time.monotonic()
+    if _project_cache["projects"] and (now - _project_cache["ts"]) < _CACHE_TTL:
+        return _project_cache["projects"]
+
+    projects = []
+
+    # Ưu tiên từ Sales API
+    project_tool = registry.get("list_projects")
+    if project_tool:
+        res = await project_tool.run({"raw_query": "", "project_name": "", "sales_data": {}})
+        if res.success and res.data:
+            projects = [str(p) for p in res.data if p]
+
+    # Fallback sang Vector DB
+    if not projects:
+        vdb = registry.get_vdb()
+        if vdb:
+            projects = await vdb.list_unique_projects()
+
+    if projects:
+        projects = [str(p) for p in projects if p]
+        _project_cache["projects"] = projects
+        _project_cache["ts"] = now
+        log.debug("project_cache_refreshed", count=len(projects))
+
+    return projects
+
+
+def _query_hints_project_switch(query: str) -> bool:
+    """Fast check: query có gợi ý nhắc đến dự án không (dùng trước khi gọi LLM)."""
+    q = query.lower()
+    return any(hint in q for hint in _PROJECT_SWITCH_HINTS)
+
+
 async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: ChatPort) -> AgentState:
     """
     Chạy sau classify_intent. 
@@ -34,19 +94,41 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
       - Đảm bảo dự án được xác định.
       - Hỗ trợ đổi ngữ cảnh nếu khách nhắc tên dự án khác (Dùng LLM Extract).
       - KHÔNG chặn nếu khách hỏi câu hỏi chung khi đã có sẵn dự án trong session.
+    Tối ưu:
+      - Cache list_projects (TTL 5 phút)
+      - Chỉ chạy LLM NER khi cần (chưa có project hoặc query hint chuyển dự án)
     """
     cfg = get_settings()
     current_project = state.get("project_name")
     query = state.get("raw_query", "")
 
-    vdb = registry.get_vdb()
-    available_projects = await vdb.list_unique_projects()
-    
-    detected_project = None
+    # [BYPASS] Chitchat → cho qua ngay
+    from app.agent.state.agent_state import Intent
+    if state.get("intent") == Intent.CHITCHAT:
+        log.info("project_guard_bypassed_for_chitchat", session=state.get("session_id"))
+        return state
 
-    if query and available_projects:
+    # ── 1. Lấy danh sách dự án (cached — TTL 5 phút) ──
+    available_projects = await _get_available_projects(registry)
+
+    # ── [BYPASS] Yêu cầu liệt kê dự án ──
+    if any(k in query.lower() for k in _PROJECT_LISTING_KEYWORDS):
+        log.info("project_guard_bypassed_for_listing", query=query)
+        return state
+
+    # ── 2. Trích xuất dự án từ query ──
+    # Chỉ gọi LLM NER khi:
+    #   a) Chưa có project (phải detect)
+    #   b) Đã có project NHƯNG query gợi ý nhắc tên dự án khác
+    detected_project = None
+    need_ner = (
+        not current_project 
+        or current_project.lower() in ["", "string", "none", "unknown"]
+        or _query_hints_project_switch(query)
+    )
+
+    if need_ner and query and available_projects:
         try:
-            # LLM Extraction
             system_msg = NER_PROMPT.format(projects=", ".join(available_projects))
             resp = await llm.chat(
                 messages=[LLMMessage(role="user", content=query)],
@@ -69,6 +151,8 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
                 if p.lower() in query.lower():
                     detected_project = p
                     break
+    elif not need_ner:
+        log.debug("project_ner_skipped", reason="project_confirmed_no_switch_hint")
 
     # Nếu phát hiện dự án mới trong query -> Cập nhật context
     if detected_project:
@@ -80,13 +164,12 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
         else:
             log.info("project_confirmed_in_query", project=detected_project)
 
-    # ── 2. Kiểm tra nếu vẫn chưa có dự án nào (cả trong state lẫn session) ──
+    # ── 3. Kiểm tra nếu vẫn chưa có dự án nào ──
     if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:
-        # Nếu không có dự án VÀ không tìm thấy dự án trong query -> Mới yêu cầu chọn
         projects = available_projects
         if not projects:
             state["final_answer"] = (
-                "Chào bạn! Tôi là chatbot CTlotus. Hiện tại tôi đang cập nhật dữ liệu. "
+                f"Chào bạn! Tôi là {cfg.bot_name}. Hiện tại tôi đang cập nhật dữ liệu. "
                 "Bạn vui lòng để lại thông tin để em hỗ trợ mình sau nhé!"
             )
             return state
@@ -96,5 +179,4 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
         log.info("project_guard_interruption", session=state.get("session_id"))
         return state
 
-    # Nếu đã có current_project -> Tiếp tục luồng (không quan tâm query có nhắc lại tên dự án hay không)
     return state

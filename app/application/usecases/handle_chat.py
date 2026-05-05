@@ -142,10 +142,12 @@ class HandleChatUseCase:
             )
 
         # ── Map state → response ──────────────────────────────────
+        raw_intent = final_state.get("intent", "unknown")
+        intent_str = raw_intent.value if hasattr(raw_intent, "value") else str(raw_intent)
         response = ChatResponse(
             session_id=session_id,
             answer=final_state.get("final_answer", ""),
-            intent=final_state.get("intent", "unknown"),
+            intent=intent_str,
             sources=_map_sources(final_state.get("sources", [])),
             tool_calls=_map_tool_calls(final_state.get("tool_calls", [])),
             fallback=final_state.get("fallback", False),

@@ -18,10 +18,13 @@ class RedisHistoryStore:
     def __init__(self, redis_pool, ttl: int = 3600):
         self._pool = redis_pool
         self._ttl = ttl
+        self._client = None
 
     def _get_client(self):
-        import redis.asyncio as aioredis
-        return aioredis.Redis(connection_pool=self._pool)
+        if self._client is None:
+            import redis.asyncio as aioredis
+            self._client = aioredis.Redis(connection_pool=self._pool)
+        return self._client
 
     async def get_history(self, session_id: str, limit: int = 10) -> list[dict]:
         """Lấy N tin nhắn gần nhất của session."""

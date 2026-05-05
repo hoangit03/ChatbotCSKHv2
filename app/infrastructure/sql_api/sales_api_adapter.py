@@ -22,6 +22,8 @@ from tenacity import (
 )
 
 from app.core.interfaces.sales_api_port import (
+    AppointmentBookingResult,
+    AppointmentSlot,
     BookingResult,
     PaymentPolicy,
     ProjectInventory,
@@ -55,19 +57,25 @@ class SalesAPIAdapter(SalesAPIPort):
             verify=True,   # KHÔNG tắt TLS
         )
         self._retries = max_retries
+
+        # Dynamic retry — dùng self._retries thay vì hardcode
+        _retry_cfg = retry(
+            retry=retry_if_exception_type(httpx.TransportError),
+            stop=stop_after_attempt(self._retries),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+        )
+        self._get = _retry_cfg(self._get)
+        self._post = _retry_cfg(self._post)
+
         log.info(
             "sales_api_init",
             base_url=base_url,
             api_key_preview=mask_value(api_key),
+            max_retries=max_retries,
         )
 
     # ── Internal helpers ──────────────────────────────────────────
 
-    @retry(
-        retry=retry_if_exception_type(httpx.TransportError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
         try:
             resp = await self._client.get(path, params=params)
@@ -115,7 +123,7 @@ class SalesAPIAdapter(SalesAPIPort):
                 floor=int(str(u.get("floor", "0")).strip()) if str(u.get("floor", "")).strip().isdigit() else 0,
                 area_m2=float(u.get("builtUpArea", u.get("area_m2", 0)) or 0),
                 bedrooms=int(u.get("bedRoom", u.get("bedrooms", 0)) or 0),
-                status=u.get("status", "unknown"),
+                status="available" if str(u.get("status", "")).lower() in ["mở bán", "trống", "available", "kho"] else "reserved" if str(u.get("status", "")).lower() in ["đặt cọc", "giữ chỗ", "reserved"] else "sold" if str(u.get("status", "")).lower() in ["hợp đồng", "đã bán", "sold"] else "unknown",
                 price_vnd=float(u.get("priceVat", u.get("price_vnd", 0)) or 0),
                 price_per_m2=float(u.get("unitPriceVat", u.get("price_per_m2", 0)) or 0),
                 direction=u.get("direction"),
@@ -228,6 +236,67 @@ class SalesAPIAdapter(SalesAPIPort):
             message=data.get("message", ""),
             unit_code=unit_code,
         )
+
+    async def get_available_slots(
+        self,
+        project: str,
+        preferred_date: Optional[str] = None,
+    ) -> list[AppointmentSlot]:
+        params = {"project": project}
+        if preferred_date:
+            params["date"] = preferred_date
+
+        data = await self._get("/api/v1/appointments/slots", params=params)
+        if not isinstance(data, list):
+            data = data.get("slots", [])
+
+        return [
+            AppointmentSlot(
+                slot_id=s.get("id", s.get("slot_id", "")),
+                date=s.get("date", ""),
+                time_start=s.get("time_start", ""),
+                time_end=s.get("time_end", ""),
+                location=s.get("location", ""),
+                available_spots=int(s.get("available_spots", 0)),
+                consultant_name=s.get("consultant_name"),
+            )
+            for s in data
+        ]
+
+    async def book_appointment(
+        self,
+        project: str,
+        slot_id: str,
+        customer_name: str,
+        customer_phone: str,
+        num_guests: int = 1,
+        note: Optional[str] = None,
+    ) -> AppointmentBookingResult:
+        payload = {
+            "project": project,
+            "slot_id": slot_id,
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "num_guests": num_guests,
+            "note": note,
+        }
+        data = await self._post("/api/v1/appointments/book", payload)
+        return AppointmentBookingResult(
+            success=data.get("success", False),
+            appointment_id=data.get("appointment_id", ""),
+            confirmation_code=data.get("confirmation_code", ""),
+            message=data.get("message", ""),
+            scheduled_date=data.get("scheduled_date"),
+            scheduled_time=data.get("scheduled_time"),
+            location=data.get("location"),
+            consultant_name=data.get("consultant_name"),
+        )
+
+    async def list_all_projects(self) -> list[str]:
+        data = await self._get("/api/v1/projects")
+        if isinstance(data, list):
+            return [p.get("name", p.get("project_name", "")) for p in data]
+        return data.get("projects", [])
 
     async def close(self) -> None:
         await self._client.aclose()

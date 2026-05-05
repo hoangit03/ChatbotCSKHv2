@@ -7,7 +7,7 @@ Một provider class xử lý được nhiều backend nhờ base_url config.
 """
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -57,6 +57,7 @@ class OpenAICompatProvider(ChatPort):
         system: str = "",
         temperature: float | None = None,
         max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         api_msgs: list[dict] = []
         if system:
@@ -64,20 +65,37 @@ class OpenAICompatProvider(ChatPort):
         for m in messages:
             api_msgs.append({"role": m.role, "content": m.content})
 
-        resp = await self._client.chat.completions.create(
-            model=self._model,
-            messages=api_msgs,
-            temperature=temperature if temperature is not None else self._temperature,
-            max_tokens=max_tokens or self._max_tokens,
-        )
+        kwargs_api = {
+            "model": self._model,
+            "messages": api_msgs,
+            "temperature": temperature if temperature is not None else self._temperature,
+            "max_tokens": max_tokens or self._max_tokens,
+        }
+        if tools:
+            kwargs_api["tools"] = tools
+
+        resp = await self._client.chat.completions.create(**kwargs_api)
         choice = resp.choices[0]
         usage = resp.usage
+        
+        parsed_tool_calls = None
+        if choice.message.tool_calls:
+            import json
+            parsed_tool_calls = []
+            for tc in choice.message.tool_calls:
+                parsed_tool_calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": json.loads(tc.function.arguments) if tc.function.arguments else {}
+                })
+
         return LLMResponse(
             content=choice.message.content or "",
             model=resp.model,
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
             stop_reason=choice.finish_reason or "stop",
+            tool_calls=parsed_tool_calls,
         )
 
     async def chat_stream(
