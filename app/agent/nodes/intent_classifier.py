@@ -61,7 +61,7 @@ async def classify_intent(state: AgentState, llm: ChatPort) -> AgentState:
     # Build history string
     history_str = ""
     messages = state.get("messages") or []
-    for msg in messages[-4:]:  # Lấy 2 turns gần nhất (4 messages) để tối ưu token (GPT-4 mini)
+    for msg in messages[-6:]:  # Lấy 3 turns gần nhất (6 messages) để phân loại intent chính xác hơn
         role = "Khách" if msg.get("role") == "user" else "Bot"
         content = msg.get("content", "")
         if content:

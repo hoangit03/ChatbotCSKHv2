@@ -227,6 +227,65 @@ def init_session_state():
         st.session_state.api_url = "http://localhost:8000"
     if "api_key" not in st.session_state:
         st.session_state.api_key = "chatbot-ctlotus"
+    if "last_bot_time" not in st.session_state:
+        st.session_state.last_bot_time = None     # Timestamp sau bot reply cuối
+    if "follow_up_sent" not in st.session_state:
+        st.session_state.follow_up_sent = False   # Chỉ gửi follow-up 1 lần/turn
+
+
+def _send_message_and_append(api_client: ChatbotAPI, text: str):
+    """
+    Gửi tin nhắn lên API, cập nhật session state và rerun.
+    Hàm tái sử dụng cho cả chat input và suggested question click.
+    """
+    st.session_state.messages.append({"role": "user", "content": text})
+    response = api_client.send_message(
+        message=text,
+        session_id=st.session_state.session_id,
+        project_name=st.session_state.get("project_name"),
+    )
+    if response:
+        detected_project = response.get("project_name")
+        if detected_project and detected_project != st.session_state.get("project_name"):
+            st.session_state.project_name = detected_project
+        st.session_state.messages.append({
+            "role":               "assistant",
+            "content":            response["answer"],
+            "sources":            response.get("sources", []),
+            "tool_calls":         response.get("tool_calls", []),
+            "suggested_questions": response.get("suggested_questions", []),
+        })
+        # Reset follow-up timer
+        st.session_state.last_bot_time = time.time()
+        st.session_state.follow_up_sent = False
+    st.rerun()
+
+
+def _render_suggested_questions(
+    api_client: ChatbotAPI,
+    questions: list[str],
+    key_prefix: str = "sq",
+):
+    """
+    Hiển thị 3 câu hỏi gợi ý dưới dạng pill buttons.
+    Khi click → tự động gửi cho agent.
+    """
+    if not questions:
+        return
+    st.markdown(
+        '<div style="margin-top: 10px; margin-bottom: 4px; font-size: 0.82rem; color: #94a3b8;">'
+        '✨ Gợi ý câu hỏi:'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(len(questions))
+    for i, q in enumerate(questions[:3]):
+        if cols[i].button(
+            q,
+            key=f"{key_prefix}_q{i}",
+            use_container_width=True,
+        ):
+            _send_message_and_append(api_client, q)
 
 def render_sidebar(api_client: ChatbotAPI):
     with st.sidebar:
@@ -301,12 +360,22 @@ def render_chat_interface(api_client: ChatbotAPI):
         # Initial greeting if empty
         if not st.session_state.messages:
             st.info("👋 Chào bạn! Tôi là chuyên viên tư vấn AI của CTlotus. Bạn cần tìm hiểu thông tin, pháp lý, bảng giá hay đặt chỗ cho dự án nào?")
-            
+            # Gợi ý câu hỏi mặc định khi chưa có hội thoại
+            _render_suggested_questions(
+                api_client,
+                [
+                    "🏢 Hiện tại có những dự án nào đang mở bán?",
+                    "💰 Mức giá tối thiểu của các dự án là bao nhiêu?",
+                    "📍 Chính sách thanh toán và vay vốn như thế nào?",
+                ],
+                key_prefix="welcome",
+            )
+
         # Display chat history
-        for message in st.session_state.messages:
+        for idx, message in enumerate(st.session_state.messages):
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-                
+
                 # Hiển thị Nguồn (Sources)
                 if "sources" in message and message["sources"]:
                     with st.expander("📚 Xem nguồn tham khảo (RAG/QA)"):
@@ -322,8 +391,8 @@ def render_chat_interface(api_client: ChatbotAPI):
                 if "tool_calls" in message and message["tool_calls"]:
                     with st.expander("⚙️ Xem quá trình Agent suy luận"):
                         for tool in message["tool_calls"]:
-                            status = "✅" if tool.get("success") else "❌"
-                            st.markdown(f"**{status} {tool['tool_name']}** `{tool['duration_ms']}ms`")
+                            status_icon = "✅" if tool.get("success") else "❌"
+                            st.markdown(f"**{status_icon} {tool['tool_name']}** `{tool['duration_ms']}ms`")
                             st.markdown(f"""
                             <div style="background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 10px;">
                                 <div style="font-family: monospace; font-size: 0.85rem; color: #94a3b8;">
@@ -333,9 +402,22 @@ def render_chat_interface(api_client: ChatbotAPI):
                             </div>
                             """, unsafe_allow_html=True)
 
+                # [NEW] Hiển thị suggested_questions ở cuối tin nhắn bot cuối cùng
+                is_last_bot = (
+                    message["role"] == "assistant"
+                    and idx == len(st.session_state.messages) - 1
+                )
+                if is_last_bot and message.get("suggested_questions"):
+                    _render_suggested_questions(
+                        api_client,
+                        message["suggested_questions"],
+                        key_prefix=f"suggest_{idx}",
+                    )
+
     # Chat Input Box
     if prompt := st.chat_input("Nhập câu hỏi của bạn (VD: Giá căn hộ 2PN dự án Metro Star bao nhiêu?)..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # Reset follow-up state khi user chủ động gỏ
+        st.session_state.follow_up_sent = False
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -344,59 +426,51 @@ def render_chat_interface(api_client: ChatbotAPI):
                 response = api_client.send_message(
                     message=prompt,
                     session_id=st.session_state.session_id,
-                    project_name=st.session_state.project_name
+                    project_name=st.session_state.get("project_name"),
                 )
-                
+
                 if response:
-                    answer = response["answer"]
-                    sources = response.get("sources", [])
-                    tool_calls = response.get("tool_calls", [])
-                    detected_project = response.get("project_name")
-                    sales_data = response.get("sales_data", {})
-                    
-                    # Agent tự động nhận diện dự án mới và báo cho UI
-                    if detected_project and detected_project != st.session_state.project_name:
+                    answer            = response["answer"]
+                    sources           = response.get("sources", [])
+                    tool_calls        = response.get("tool_calls", [])
+                    suggested         = response.get("suggested_questions", [])
+                    detected_project  = response.get("project_name")
+                    sales_data        = response.get("sales_data", {})
+
+                    if detected_project and detected_project != st.session_state.get("project_name"):
                         st.session_state.project_name = detected_project
                         st.toast(f"Hệ thống đã tự động chuyển bối cảnh sang dự án: **{detected_project}**", icon="🎯")
 
                     st.markdown(answer)
 
-                    # [NEW] Hiển thị danh sách dự án dưới dạng nút bấm nếu có
+                    # Dự án list buttons
                     project_list = sales_data.get("project_list", [])
                     if project_list:
                         st.markdown("---")
                         st.markdown("### 🎯 Dự án đề xuất")
                         cols = st.columns(min(len(project_list), 4))
-                        for idx, p_name in enumerate(project_list):
-                            if cols[idx % 4].button(f"Chọn: {p_name}", key=f"btn_{p_name}_{idx}"):
-                                st.session_state.project_name = p_name
-                                st.toast(f"Đã chọn dự án: {p_name}")
-                                # Tự động gửi tin nhắn cho agent
-                                response = api_client.send_message(
-                                    message=f"Tôi muốn tìm hiểu về dự án {p_name}",
-                                    session_id=st.session_state.session_id,
-                                    project_name=p_name
+                        for pidx, p_name in enumerate(project_list):
+                            if cols[pidx % 4].button(f"Chọn: {p_name}", key=f"btn_{p_name}_{pidx}"):
+                                _send_message_and_append(
+                                    api_client,
+                                    f"Tôi muốn tìm hiểu về dự án {p_name}",
                                 )
-                                if response:
-                                    st.session_state.messages.append({"role": "user", "content": f"Tôi muốn tìm hiểu về dự án {p_name}"})
-                                    st.session_state.messages.append({
-                                        "role": "assistant",
-                                        "content": response["answer"],
-                                        "sources": response.get("sources", []),
-                                        "tool_calls": response.get("tool_calls", [])
-                                    })
-                                    st.rerun()
 
-                    # Lưu lại
+                    # Lưu message vào session (kèm suggested_questions)
+                    st.session_state.messages.append({"role": "user", "content": prompt})
                     st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "sources": sources,
-                        "tool_calls": tool_calls
+                        "role":               "assistant",
+                        "content":            answer,
+                        "sources":            sources,
+                        "tool_calls":         tool_calls,
+                        "suggested_questions": suggested,
                     })
-                    
-                    # Expanders cho response hiện tại
-                    col1, col2 = st.columns([1, 1])
+
+                    # Cập nhật timer cho auto follow-up
+                    st.session_state.last_bot_time = time.time()
+                    st.session_state.follow_up_sent = False
+
+                    # Hiển thị sources / tool traces cho response hiện tại
                     if sources:
                         with st.expander("📚 Xem nguồn tham khảo (RAG/QA)"):
                             for src in sources:
@@ -406,12 +480,12 @@ def render_chat_interface(api_client: ChatbotAPI):
                                     <div style="color: #cbd5e1; line-height: 1.5;">{src['excerpt']}</div>
                                 </div>
                                 """, unsafe_allow_html=True)
-                    
+
                     if tool_calls:
                         with st.expander("⚙️ Xem quá trình Agent suy luận"):
                             for tool in tool_calls:
-                                status = "✅" if tool.get("success") else "❌"
-                                st.markdown(f"**{status} {tool['tool_name']}** `{tool['duration_ms']}ms`")
+                                status_ic = "✅" if tool.get("success") else "❌"
+                                st.markdown(f"**{status_ic} {tool['tool_name']}** `{tool['duration_ms']}ms`")
                                 st.markdown(f"""
                                 <div style="background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 10px;">
                                     <div style="font-family: monospace; font-size: 0.85rem; color: #94a3b8;">
@@ -422,6 +496,35 @@ def render_chat_interface(api_client: ChatbotAPI):
                                 """, unsafe_allow_html=True)
                 else:
                     st.error("Không thể kết nối đến AI Server. Vui lòng thử lại sau.")
+
+    # [NEW] Auto follow-up sau 15s nếu khách không phản hồi
+    FOLLOW_UP_DELAY = 15  # giây
+    FOLLOW_UP_MSG = (
+        "👋 Bạn có cần hỗ trợ thêm không? "
+        "Tôi rất vui được giải đáp thắc mắc về giá, pháp lý hoặc cập nhật tình hình dự án!"
+    )
+    last_time = st.session_state.get("last_bot_time")
+    follow_sent = st.session_state.get("follow_up_sent", False)
+    if (
+        last_time is not None
+        and not follow_sent
+        and st.session_state.messages  # có hội thoại
+        and st.session_state.messages[-1]["role"] == "assistant"  # bot vừa reply
+        and (time.time() - last_time) >= FOLLOW_UP_DELAY
+    ):
+        st.session_state.follow_up_sent = True
+        st.session_state.messages.append({
+            "role":               "assistant",
+            "content":            FOLLOW_UP_MSG,
+            "sources":            [],
+            "tool_calls":         [],
+            "suggested_questions": [
+                "💰 Giá dự án cụ thể bao nhiêu?",
+                "📊 Tình trạng tồn kho hiện tại thế nào?",
+                "📅 Tôi muốn đặt lịch xem nhà mẫu.",
+            ],
+        })
+        st.rerun()
 
 def render_upload_page(api_client: ChatbotAPI):
     st.markdown('<div class="gradient-text">Knowledge Base</div>', unsafe_allow_html=True)

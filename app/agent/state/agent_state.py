@@ -179,6 +179,7 @@ class AgentState(TypedDict):
     cross_sell_suggestions: list        # list[dict] — căn đề xuất
     booking_confirmation: bool          # Khách đã confirm booking chưa
     price_disclosed: bool               # Giá đã được cho phép tiết lộ chưa
+    suggested_questions: list           # 3 câu hỏi gợi ý tiếp theo (generate bởi Synthesizer)
 
 
 # ── Factory ────────────────────────────────────────────────────────
@@ -227,4 +228,5 @@ def make_initial_state(
         cross_sell_suggestions=[],
         booking_confirmation=False,
         price_disclosed=False,
+        suggested_questions=[],
     )

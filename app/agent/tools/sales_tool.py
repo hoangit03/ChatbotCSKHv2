@@ -12,6 +12,7 @@ Tách thành nhiều tool nhỏ (ISP) thay vì một tool lớn:
 from __future__ import annotations
 
 import re
+from datetime import date as _date
 from typing import Optional
 
 from app.agent.state.agent_state import AgentState, ScarcityLevel
@@ -54,8 +55,44 @@ def _compute_scarcity(available_count: int) -> str:
         return ScarcityLevel.LOW
     return ScarcityLevel.NONE
 
+
+def _is_sale_program_valid(sale_program: str | dict | None) -> bool:
+    """
+    Kiểm tra đợt bán / chương trình ưu đãi có còn hiệu lực không.
+    Nếu sale_program là dict có trường 'end_date' hoặc 'expiry_date',
+    so sánh với ngày hôm nay (UTC).
+    - Trả về True nếu còn hiệu lực hoặc không có ngày hết hạn.
+    - Trả về False nếu đã quá hạn.
+    """
+    if not isinstance(sale_program, dict):
+        return True  # string / None → không có thông tin ngày → cho qua
+
+    today = _date.today()
+    for field in ("end_date", "expiry_date", "expired_date", "valid_until"):
+        raw = sale_program.get(field)
+        if raw:
+            try:
+                # Hỗ trợ cả ISO format: 2026-05-10, 2026-05-10T00:00:00
+                end = _date.fromisoformat(str(raw)[:10])
+                if end < today:
+                    log.info(
+                        "sale_program_expired",
+                        program=sale_program.get("name", ""),
+                        end_date=str(end),
+                        today=str(today),
+                    )
+                    return False
+            except (ValueError, TypeError):
+                pass  # Ngày không parse được → bỏ qua
+    return True
+
 def _unit_to_dict(u) -> dict:
-    """Convert UnitAvailability → dict chuẩn cho sales_data."""
+    """Convert UnitAvailability → dict chuẩn cho sales_data.
+    sale_program hết hạn sẽ được đánh dấu None để Synthesizer không tư vấn nhầm.
+    """
+    sp = u.sale_program
+    if not _is_sale_program_valid(sp):
+        sp = None  # Chương trình đã hết hạn — không gửi lên LLM
     return {
         "unit_code":       u.unit_code,
         "bedrooms":        u.bedrooms,
@@ -65,7 +102,7 @@ def _unit_to_dict(u) -> dict:
         "total_price":     _fmt_vnd(u.total_price) if u.total_price else _fmt_vnd(u.price_vnd),
         "floor":           u.floor,
         "direction":       u.direction,
-        "sale_program":    u.sale_program,
+        "sale_program":    sp,
         "maintenance_fee": _fmt_vnd(u.maintenance_fee) if u.maintenance_fee else None,
         "status":          u.status,
     }
