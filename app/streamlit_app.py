@@ -449,11 +449,21 @@ def render_chat_interface(api_client: ChatbotAPI):
                         st.markdown("---")
                         st.markdown("### 🎯 Dự án đề xuất")
                         cols = st.columns(min(len(project_list), 4))
-                        for pidx, p_name in enumerate(project_list):
-                            if cols[pidx % 4].button(f"Chọn: {p_name}", key=f"btn_{p_name}_{pidx}"):
+                        for pidx, p_data in enumerate(project_list):
+                            if isinstance(p_data, dict):
+                                prj_name = p_data.get("name", "Unknown")
+                                prj_loc = p_data.get("province") or p_data.get("address") or ""
+                                btn_text = f"Chọn: {prj_name}"
+                                if prj_loc:
+                                    btn_text += f" ({prj_loc})"
+                            else:
+                                prj_name = str(p_data)
+                                btn_text = f"Chọn: {prj_name}"
+
+                            if cols[pidx % 4].button(btn_text, key=f"btn_prj_{pidx}"):
                                 _send_message_and_append(
                                     api_client,
-                                    f"Tôi muốn tìm hiểu về dự án {p_name}",
+                                    f"Tôi muốn tìm hiểu về dự án {prj_name}",
                                 )
 
                     # Lưu message vào session (kèm suggested_questions)
@@ -494,6 +504,8 @@ def render_chat_interface(api_client: ChatbotAPI):
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
+                    
+                    st.rerun()
                 else:
                     st.error("Không thể kết nối đến AI Server. Vui lòng thử lại sau.")
 

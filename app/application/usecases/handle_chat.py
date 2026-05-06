@@ -133,8 +133,8 @@ class HandleChatUseCase:
             return ChatResponse(
                 session_id=session_id,
                 answer=(
-                    "Xin lỗi, hệ thống đang gặp sự cố. "
-                    "Vui lòng thử lại hoặc liên hệ Sales để được hỗ trợ."
+                    "Dạ, hiện tại hệ thống đang xử lý quá nhiều yêu cầu nên phản hồi chậm. "
+                    "Anh/chị vui lòng để lại số điện thoại để chuyên viên tư vấn gọi lại hỗ trợ mình ngay nhé."
                 ),
                 intent="unknown",
                 fallback=True,

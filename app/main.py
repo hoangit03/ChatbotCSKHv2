@@ -114,13 +114,11 @@ async def lifespan(app: FastAPI):
     registry = ToolRegistry(vdb=vector_db)
 
     from app.agent.tools.sales_tool import (
-        AppointmentTool,
         AvailabilityTool,
-        BookingIntentTool,
         InventoryTool,
-        PaymentTool,
         UnitSearchTool,
         ProjectListTool,
+        ConsultationTool,
     )
 
     registry.register(QATool(store=qa_store))
@@ -137,11 +135,9 @@ async def lifespan(app: FastAPI):
     if cfg.sales_api_configured:
         registry.register(AvailabilityTool(api=sales_api))
         registry.register(InventoryTool(api=sales_api))
-        registry.register(PaymentTool(api=sales_api))
         registry.register(UnitSearchTool(api=sales_api))
-        registry.register(BookingIntentTool(api=sales_api))
         registry.register(ProjectListTool(api=sales_api))
-        registry.register(AppointmentTool(api=sales_api))
+        registry.register(ConsultationTool(api=sales_api))
         log.info("sales_tools_registered")
     else:
         log.warning(

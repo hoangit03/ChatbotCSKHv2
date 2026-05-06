@@ -30,27 +30,27 @@ LƯU Ý QUAN TRỌNG:
 _STAGE_TOOL_GUIDANCE = {
     CustomerStage.AWARENESS: """
 GIAI ĐOẠN KHÁCH HÀNG: Giai đoạn 1 — Mới Quan Tâm.
-CHIẾN LƯỢC: Mục tiêu là chốt lịch hẹn, KHÔNG bán nhà qua điện thoại.
-- Nếu khách hỏi xem nhà, muốn đến xem: gọi `book_appointment`.
+CHIẾN LƯỢC: Mục tiêu là thu thập thông tin khách hàng để tư vấn (Consultation).
+- Nếu khách hỏi về dự án, tiện ích, vị trí: dùng kiến thức đã có.
+- Nếu khách hỏi muốn xem nhà, muốn liên hệ sale: gọi `register_consultation`.
 - Nếu khách hỏi tổng quan tồn kho: gọi `get_inventory`.
-- TUYỆT ĐỐI KHÔNG gọi `check_availability` với giá chi tiết ở giai đoạn này.
-- Nếu khách hỏi giá: trả lời chung chung, ưu tiên mời đến xem sa bàn.
+- TUYỆT ĐỐI KHÔNG báo giá chi tiết ở giai đoạn này. Ưu tiên mời đăng ký tư vấn.
 """,
     CustomerStage.CONSIDERATION: """
 GIAI ĐOẠN KHÁCH HÀNG: Giai đoạn 2 — Đang Đánh Giá.
-CHIẾN LƯỢC: Đẩy cảm xúc, chứng minh đẳng cấp và quy mô dự án.
+CHIẾN LƯỢC: Chứng minh đẳng cấp và quy mô dự án. 
+- Nếu khách muốn liên hệ tư vấn: gọi `register_consultation`.
 - Nếu hỏi căn cụ thể/view/hướng: gọi `check_availability` hoặc `search_units`.
 - Nếu hỏi tổng quan: gọi `get_inventory`.
 - Có thể cung cấp thông tin giá ở giai đoạn này.
 """,
     CustomerStage.DECISION: """
 GIAI ĐOẠN KHÁCH HÀNG: Giai đoạn 3 — Sắp Chốt Deal.
-CHIẾN LƯỢC: Xóa bỏ rủi ro, cung cấp số liệu pháp lý, tạo sức ép khan hiếm.
+CHIẾN LƯỢC: Xóa bỏ rủi ro, tạo sức ép khan hiếm.
+- Nếu khách muốn chốt, muốn liên hệ sale ngay: gọi `register_consultation`.
 - Nếu hỏi căn cụ thể: gọi `check_availability`.
 - Nếu tìm theo tiêu chí: gọi `search_units`.
-- Nếu hỏi thanh toán/vay: gọi `get_payment_policy`.
-- Nếu muốn đặt cọc: gọi `booking_intent`.
-- Cung cấp đầy đủ thông tin giá, pháp lý, bảo lãnh.
+- Cung cấp đầy đủ thông tin giá, pháp lý.
 """,
 }
 
@@ -93,12 +93,12 @@ class SalesNode:
             self._inject_usps(state, stage)  # Re-inject với stage mới
             log.info("comparison_intent_stage_upgraded", session=state.get("session_id"))
  
-        # ── 4. Xử lý đặc biệt cho Appointment Intent ─────────────
-        if intent == Intent.APPOINTMENT_INTENT:
-            await self._run_tool("book_appointment", state)
+        # ── 4. Xử lý đặc biệt cho Consultation Intent ─────────────
+        if intent == Intent.CONSULTATION_INTENT:
+            await self._run_tool("register_consultation", state)
             return state
 
-        # ── 5. LLM Native Tool Calling với stage-aware prompt ─────
+        # ── 5. Gọi LLM để quyết định gọi tool hay trả lời trực tiếp ──
         stage_guidance = _STAGE_TOOL_GUIDANCE.get(stage, "")
         system_prompt = _BASE_SALES_PROMPT + stage_guidance
  
@@ -112,15 +112,15 @@ class SalesNode:
  
             tool_calls = resp.tool_calls or []
  
-            # Fallback nếu intent là booking nhưng LLM không gọi tool
-            if not tool_calls and intent == Intent.BOOKING_INTENT:
-                tool_calls = [{"name": "booking_intent", "arguments": {}}]
- 
+            # Fallback nếu intent là tư vấn nhưng LLM không gọi tool
+            if not tool_calls and intent == Intent.CONSULTATION_INTENT:
+                tool_calls = [{"name": "register_consultation", "arguments": {}}]
+
             # Chạy tuần tự — tránh race condition
             for tc in tool_calls:
                 tool_name = tc.get("name")
                 args = tc.get("arguments", {})
- 
+
                 # ── [NEW] Price Guard: Giai đoạn 1 không tiết lộ giá ──
                 if stage == CustomerStage.AWARENESS and tool_name == "check_availability":
                     log.info(
@@ -134,16 +134,8 @@ class SalesNode:
                     # Chuyển sang get_inventory thay thế (không có giá chi tiết)
                     tool_name = "get_inventory"
                     args = {}
- 
-                if tool_name == "booking_intent":
-                    result = self._handle_booking_slot_filling(state, args)
-                    if result:  # Có final_answer → thiếu thông tin hoặc cần confirm
-                        state["final_answer"] = result
-                        continue
-                    state["tool_kwargs"][tool_name] = args
-                else:
-                    state["tool_kwargs"][tool_name] = args
- 
+
+                state["tool_kwargs"][tool_name] = args
                 await self._run_tool(tool_name, state)
  
         except Exception as e:
@@ -196,60 +188,6 @@ class SalesNode:
             session=state.get("session_id"),
         )
  
-    def _handle_booking_slot_filling(
-        self,
-        state: AgentState,
-        args: dict,
-    ) -> str | None:
-        """
-        [NEW] Multi-turn slot filling cho booking.
-        Trả về final_answer nếu cần thêm thông tin hoặc cần xác nhận.
-        Trả về None nếu đã đủ → cho phép tiếp tục gọi tool.
-        """
-        sales_data     = state.get("sales_data", {})
-        customer_phone = state.get("customer_phone") or sales_data.get("customer_phone")
-        customer_name  = state.get("customer_name")  or sales_data.get("customer_name")
-        unit_code      = args.get("unit_code") or sales_data.get("selected_unit_code")
- 
-        missing = []
-        if not customer_name:
-            missing.append("họ và tên")
-        if not customer_phone:
-            missing.append("số điện thoại")
-        if not unit_code:
-            missing.append("mã căn hộ chính xác")
- 
-        if missing:
-            missing_str = " và ".join(missing)
-            state["sales_data"]["booking_pending"] = True
-            state["sales_data"]["booking_missing_fields"] = missing
-            return (
-                f"Dạ, để tiến hành giữ chỗ/đặt cọc, "
-                f"anh/chị vui lòng cung cấp thêm {missing_str} để em báo hệ thống nhé!"
-            )
- 
-        # [NEW] Confirmation step — lần đầu hỏi booking
-        if not state.get("booking_confirmation"):
-            state["sales_data"]["booking_pending"] = True
-            state["sales_data"]["booking_confirm_required"] = {
-                "unit_code":      unit_code,
-                "customer_name":  customer_name,
-                "customer_phone": customer_phone,
-            }
-            # Lưu unit_code để turn tiếp theo dùng
-            state["tool_kwargs"]["booking_intent"] = {"unit_code": unit_code}
-            return (
-                f"Dạ, em xin xác nhận lại thông tin:\n"
-                f"• Căn hộ: **{unit_code}**\n"
-                f"• Họ tên: **{customer_name}**\n"
-                f"• SĐT: **{customer_phone}**\n\n"
-                f"Anh/chị xác nhận đặt cọc giữ chỗ căn này nhé? "
-                f"(Trả lời 'xác nhận' hoặc 'đồng ý' để hoàn tất)"
-            )
- 
-        # Đã confirm → cho phép gọi tool
-        state["tool_kwargs"]["booking_intent"] = {"unit_code": unit_code}
-        return None
 
     async def _run_doc_tools(self, state: AgentState) -> None:
         qa_tool = self._registry.get("qa_lookup")

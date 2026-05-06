@@ -37,7 +37,8 @@ _PROJECT_LISTING_KEYWORDS = [
     "bao nhiêu dự án", "danh sách dự án", "kể tên dự án",
     "có những dự án nào", "dự án hiện tại", "liệt kê dự án",
     "show me projects", "dự án nào đang", "dự án gì", "các dự án",
-    "tất cả dự án", "mấy dự án",
+    "tất cả dự án", "mấy dự án", "bất động sản", "dự án nào phù hợp",
+    "gợi ý dự án", "tìm dự án", "giới thiệu dự án", "dự án nào"
 ]
 
 # ── Keywords gợi ý khách đang chuyển/nhắc tên dự án khác ──
@@ -51,8 +52,8 @@ _project_cache: dict = {"projects": [], "ts": 0.0}
 _CACHE_TTL = 300  # 5 phút
 
 
-async def _get_available_projects(registry: ToolRegistry) -> list[str]:
-    """Lấy danh sách dự án với cache TTL 5 phút."""
+async def _get_available_projects(registry: ToolRegistry) -> list[dict]:
+    """Lấy danh sách dự án (dict chứa id và name) với cache TTL 5 phút."""
     now = time.monotonic()
     if _project_cache["projects"] and (now - _project_cache["ts"]) < _CACHE_TTL:
         return _project_cache["projects"]
@@ -64,16 +65,17 @@ async def _get_available_projects(registry: ToolRegistry) -> list[str]:
     if project_tool:
         res = await project_tool.run({"raw_query": "", "project_name": "", "sales_data": {}})
         if res.success and res.data:
-            projects = [str(p) for p in res.data if p]
+            # data là list[dict] chứa 'id' và 'name'
+            projects = res.data
 
-    # Fallback sang Vector DB
+    # Fallback sang Vector DB (nếu list_projects fail)
     if not projects:
         vdb = registry.get_vdb()
         if vdb:
-            projects = await vdb.list_unique_projects()
+            names = await vdb.list_unique_projects()
+            projects = [{"id": "unknown", "name": n} for n in names if n]
 
     if projects:
-        projects = [str(p) for p in projects if p]
         _project_cache["projects"] = projects
         _project_cache["ts"] = now
         log.debug("project_cache_refreshed", count=len(projects))
@@ -110,6 +112,7 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
 
     # ── 1. Lấy danh sách dự án (cached — TTL 5 phút) ──
     available_projects = await _get_available_projects(registry)
+    project_names = [p["name"] for p in available_projects]
 
     # ── [BYPASS] Yêu cầu liệt kê dự án ──
     if any(k in query.lower() for k in _PROJECT_LISTING_KEYWORDS):
@@ -120,16 +123,16 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
     # Chỉ gọi LLM NER khi:
     #   a) Chưa có project (phải detect)
     #   b) Đã có project NHƯNG query gợi ý nhắc tên dự án khác
-    detected_project = None
+    detected_project_name = None
     need_ner = (
         not current_project 
         or current_project.lower() in ["", "string", "none", "unknown"]
         or _query_hints_project_switch(query)
     )
 
-    if need_ner and query and available_projects:
+    if need_ner and query and project_names:
         try:
-            system_msg = NER_PROMPT.format(projects=", ".join(available_projects))
+            system_msg = NER_PROMPT.format(projects=", ".join(project_names))
             resp = await llm.chat(
                 messages=[LLMMessage(role="user", content=query)],
                 system=system_msg,
@@ -142,27 +145,32 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
                 content = content[3:-3].strip()
                 
             data = json.loads(content)
-            if data.get("found") and data.get("project_name") in available_projects:
-                detected_project = data.get("project_name")
+            if data.get("found") and data.get("project_name") in project_names:
+                detected_project_name = data.get("project_name")
         except Exception as e:
             log.error("project_extraction_failed", error=str(e))
             # Fallback to exact match as safety net
-            for p in available_projects:
-                if p.lower() in query.lower():
-                    detected_project = p
+            for p_name in project_names:
+                if p_name.lower() in query.lower():
+                    detected_project_name = p_name
                     break
     elif not need_ner:
         log.debug("project_ner_skipped", reason="project_confirmed_no_switch_hint")
 
     # Nếu phát hiện dự án mới trong query -> Cập nhật context
-    if detected_project:
-        if current_project != detected_project:
-            log.info("project_context_switched", old=current_project, new=detected_project)
-            state["project_name"] = detected_project
+    if detected_project_name:
+        # Tìm ID tương ứng
+        p_id = next((p["id"] for p in available_projects if p["name"] == detected_project_name), "unknown")
+        
+        if current_project != detected_project_name:
+            log.info("project_context_switched", old=current_project, new=detected_project_name, id=p_id)
+            state["project_name"] = detected_project_name
+            state["project_id"] = p_id
             state["project_newly_confirmed"] = True
-            current_project = detected_project
+            current_project = detected_project_name
         else:
-            log.info("project_confirmed_in_query", project=detected_project)
+            state["project_id"] = p_id
+            log.info("project_confirmed_in_query", project=detected_project_name, id=p_id)
 
     # ── 3. Kiểm tra nếu vẫn chưa có dự án nào ──
     if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:
@@ -174,7 +182,7 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
             )
             return state
 
-        project_list_str = ", ".join(projects)
+        project_list_str = ", ".join([p["name"] for p in projects])
         state["final_answer"] = cfg.project_suggestion_prompt.format(projects=project_list_str)
         log.info("project_guard_interruption", session=state.get("session_id"))
         return state

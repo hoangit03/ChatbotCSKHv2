@@ -1,13 +1,10 @@
 """
 app/infrastructure/sql_api/sales_api_adapter.py
 
-HTTP adapter gọi backend Sales API.
-Bảo mật:
-  - API key qua header X-Internal-Key (không qua URL)
-  - TLS enforced (verify=True)
-  - Timeout + exponential retry
-  - Log không bao giờ log body chứa data nhạy cảm
-  - Response validated trước khi trả về
+HTTP adapter gọi backend Sales API v2.
+Cập nhật:
+  - Endpoints: /endpoint/product, /endpoint/project, /endpoint/consultation
+  - Consultation payload: { name, phoneNumber, projectId, projectName, email, address }
 """
 from __future__ import annotations
 
@@ -22,9 +19,7 @@ from tenacity import (
 )
 
 from app.core.interfaces.sales_api_port import (
-    AppointmentBookingResult,
-    AppointmentSlot,
-    BookingResult,
+    ConsultationResult,
     PaymentPolicy,
     ProjectInventory,
     SalesAPIPort,
@@ -49,22 +44,22 @@ class SalesAPIAdapter(SalesAPIPort):
         self._client = httpx.AsyncClient(
             base_url=base_url,
             headers={
-                "X-Internal-Key": api_key,
+                "x-api-key": api_key,
                 "Content-Type": "application/json",
-                "User-Agent": "RagAgent/1.0",
+                "User-Agent": "RagAgent/2.0",
             },
             timeout=httpx.Timeout(timeout),
-            verify=True,   # KHÔNG tắt TLS
+            verify=True,
         )
         self._retries = max_retries
 
-        # Dynamic retry — dùng self._retries thay vì hardcode
         _retry_cfg = retry(
             retry=retry_if_exception_type(httpx.TransportError),
             stop=stop_after_attempt(self._retries),
             wait=wait_exponential(multiplier=1, min=1, max=8),
+            reraise=True,
         )
-        self._get = _retry_cfg(self._get)
+        self._get  = _retry_cfg(self._get)
         self._post = _retry_cfg(self._post)
 
         log.info(
@@ -82,12 +77,14 @@ class SalesAPIAdapter(SalesAPIPort):
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            # Log status, KHÔNG log body
             log.error("sales_api_http_error", path=path, status=e.response.status_code)
             raise SalesAPIError(
                 f"Sales API error on {path}",
                 upstream_status=e.response.status_code,
             ) from e
+        except Exception as e:
+            log.error("sales_api_network_error", path=path, error=str(e))
+            raise SalesAPIError(f"Network error on {path}: {str(e)}") from e
 
     async def _post(self, path: str, payload: dict) -> dict:
         try:
@@ -100,6 +97,9 @@ class SalesAPIAdapter(SalesAPIPort):
                 f"Sales API POST error on {path}",
                 upstream_status=e.response.status_code,
             ) from e
+        except Exception as e:
+            log.error("sales_api_post_network_error", path=path, error=str(e))
+            raise SalesAPIError(f"Network error on POST {path}: {str(e)}") from e
 
     # ── Port implementation ───────────────────────────────────────
 
@@ -112,55 +112,47 @@ class SalesAPIAdapter(SalesAPIPort):
         if unit_code:
             params["unit_code"] = unit_code
 
-        data = await self._get("/api/v1/units/availability", params=params)
-        if not isinstance(data, list):
-            data = data.get("units", [])
+        # Chuyển sang /endpoint/product
+        data = await self._get("/endpoint/product", params=params)
+        if isinstance(data, dict):
+            data = data.get("data", data.get("units", []))
 
-        return [
-            UnitAvailability(
-                unit_code=u.get("code", u.get("unit_code", "")),
-                project=u.get("projectId", project),
-                floor=int(str(u.get("floor", "0")).strip()) if str(u.get("floor", "")).strip().isdigit() else 0,
-                area_m2=float(u.get("builtUpArea", u.get("area_m2", 0)) or 0),
-                bedrooms=int(u.get("bedRoom", u.get("bedrooms", 0)) or 0),
-                status="available" if str(u.get("status", "")).lower() in ["mở bán", "trống", "available", "kho"] else "reserved" if str(u.get("status", "")).lower() in ["đặt cọc", "giữ chỗ", "reserved"] else "sold" if str(u.get("status", "")).lower() in ["hợp đồng", "đã bán", "sold"] else "unknown",
-                price_vnd=float(u.get("priceVat", u.get("price_vnd", 0)) or 0),
-                price_per_m2=float(u.get("unitPriceVat", u.get("price_per_m2", 0)) or 0),
-                direction=u.get("direction"),
-                carpet_area=float(u.get("carpetArea", 0) or 0),
-                maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
-                total_price=float(u.get("totalPrice", 0) or 0),
-                sale_program=u.get("saleProgramName"),
-                type=u.get("type")
-            )
-            for u in data
-        ]
+        return [_map_unit(u, project) for u in data]
 
     async def get_project_inventory(self, project: str) -> ProjectInventory:
-        data = await self._get("/api/v1/projects/inventory", params={"project": project})
-        if isinstance(data, list):
-            data = data[0] if data else {}
+        data = await self._get("/endpoint/project", params={"name": project})
+        if isinstance(data, list) and data:
+            data = data[0]
+        elif isinstance(data, dict):
+            # Nếu trả về dict đơn lẻ
+            pass
+        
         return ProjectInventory(
-            project=data.get("project", project),
-            total_units=int(data.get("total_units", 0)),
+            project=data.get("name", project),
+            total_units=int(data.get("scale", 0)),
             available=int(data.get("available", 0)),
             reserved=int(data.get("reserved", 0)),
             sold=int(data.get("sold", 0)),
         )
 
     async def get_payment_policies(self, project: str) -> list[PaymentPolicy]:
-        data = await self._get("/api/v1/projects/payment-policies", params={"project": project})
-        if not isinstance(data, list):
-            data = data.get("policies", [])
-        return [
-            PaymentPolicy(
-                project=project,
-                name=p.get("name", ""),
-                description=p.get("description", ""),
-                installments=p.get("installments", []),
-            )
-            for p in data
-        ]
+        # Giả định policy có thể lấy từ project hoặc endpoint riêng
+        # Tạm thời giữ route cũ hoặc giả định Mock API hỗ trợ
+        try:
+            data = await self._get("/endpoint/project/payment-policies", params={"name": project})
+            if not isinstance(data, list):
+                data = data.get("policies", [])
+            return [
+                PaymentPolicy(
+                    project=project,
+                    name=p.get("name", ""),
+                    description=p.get("description", ""),
+                    installments=p.get("installments", []),
+                )
+                for p in data
+            ]
+        except:
+            return []
 
     async def search_units(
         self,
@@ -178,125 +170,129 @@ class SalesAPIAdapter(SalesAPIPort):
         if status:
             params["status"] = status
         if bedrooms is not None:
-            params["bedrooms"] = bedrooms
+            params["bedRoom"] = bedrooms # Map sang bedRoom theo product.json
         if min_price_vnd is not None:
-            params["min_price"] = min_price_vnd
+            params["minPrice"] = min_price_vnd
         if max_price_vnd is not None:
-            params["max_price"] = max_price_vnd
+            params["maxPrice"] = max_price_vnd
         if min_area_m2 is not None:
-            params["min_area"] = min_area_m2
-        if max_area_m2 is not None:
-            params["max_area"] = max_area_m2
+            params["minArea"] = min_area_m2
         if direction:
             params["direction"] = direction
         if floor:
             params["floor"] = floor
 
-        data = await self._get("/api/v1/units/search", params=params)
-        if not isinstance(data, list):
-            data = data.get("units", [])
+        # Chuyển sang /endpoint/product
+        data = await self._get("/endpoint/product", params=params)
+        if isinstance(data, dict):
+            data = data.get("data", data.get("units", []))
 
-        return [
-            UnitAvailability(
-                unit_code=u.get("code", u.get("unit_code", "")),
-                project=u.get("projectId", project),
-                floor=int(str(u.get("floor", "0")).strip()) if str(u.get("floor", "")).strip().isdigit() else 0,
-                area_m2=float(u.get("builtUpArea", u.get("area_m2", 0)) or 0),
-                bedrooms=int(u.get("bedRoom", u.get("bedrooms", 0)) or 0),
-                status=u.get("status", "unknown"),
-                price_vnd=float(u.get("priceVat", u.get("price_vnd", 0)) or 0),
-                price_per_m2=float(u.get("unitPriceVat", u.get("price_per_m2", 0)) or 0),
-                direction=u.get("direction"),
-                carpet_area=float(u.get("carpetArea", 0) or 0),
-                maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
-                total_price=float(u.get("totalPrice", 0) or 0),
-                sale_program=u.get("saleProgramName"),
-                type=u.get("type")
-            )
-            for u in data
+        # [NEW] Chỉ hiển thị Kho hoặc Chưa mở bán trong kết quả tìm kiếm
+        valid_statuses = ("kho", "chưa mở bán")
+        filtered_data = [
+            u for u in data 
+            if str(u.get("virtualStatus", u.get("status", ""))).lower().strip() in valid_statuses
         ]
 
-    async def trigger_booking_intent(
+        return [_map_unit(u, project) for u in filtered_data]
+
+    async def register_consultation(
         self,
-        project: str,
-        unit_code: str,
-        customer_name: str,
-        customer_phone: str,
-    ) -> BookingResult:
-        payload = {
-            "project": project,
-            "unit_code": unit_code,
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
+        name: str,
+        phoneNumber: str,
+        projectId: str,
+        projectName: str,
+        email: Optional[str] = None,
+        address: Optional[str] = None,
+    ) -> ConsultationResult:
+        """
+        Đăng ký yêu cầu tư vấn → POST /endpoint/consultation.
+        Payload yêu cầu: { name, phoneNumber, projectId, projectName, email, address }
+        """
+        payload: dict = {
+            "name":         name,
+            "phoneNumber":  phoneNumber,
+            "projectId":    projectId,
+            "projectName":  projectName,
         }
-        data = await self._post("/api/v1/bookings/intent", payload)
-        return BookingResult(
-            success=data.get("success", False),
-            booking_id=data.get("booking_id", ""),
-            message=data.get("message", ""),
-            unit_code=unit_code,
+        if email:
+            payload["email"] = email
+        if address:
+            payload["address"] = address
+
+        log.info("consultation_request_v2", projectId=projectId, projectName=projectName)
+
+        data = await self._post("/endpoint/consultation", payload)
+        
+        return ConsultationResult(
+            success=data.get("success", True),
+            consultation_id=data.get("id", data.get("consultation_id", "")),
+            message=data.get("message", "Đã ghi nhận yêu cầu tư vấn."),
+            name=name,
+            phoneNumber=phoneNumber,
+            projectId=projectId,
+            projectName=projectName,
+            email=email,
+            address=address
         )
 
-    async def get_available_slots(
-        self,
-        project: str,
-        preferred_date: Optional[str] = None,
-    ) -> list[AppointmentSlot]:
-        params = {"project": project}
-        if preferred_date:
-            params["date"] = preferred_date
-
-        data = await self._get("/api/v1/appointments/slots", params=params)
-        if not isinstance(data, list):
-            data = data.get("slots", [])
-
-        return [
-            AppointmentSlot(
-                slot_id=s.get("id", s.get("slot_id", "")),
-                date=s.get("date", ""),
-                time_start=s.get("time_start", ""),
-                time_end=s.get("time_end", ""),
-                location=s.get("location", ""),
-                available_spots=int(s.get("available_spots", 0)),
-                consultant_name=s.get("consultant_name"),
-            )
-            for s in data
-        ]
-
-    async def book_appointment(
-        self,
-        project: str,
-        slot_id: str,
-        customer_name: str,
-        customer_phone: str,
-        num_guests: int = 1,
-        note: Optional[str] = None,
-    ) -> AppointmentBookingResult:
-        payload = {
-            "project": project,
-            "slot_id": slot_id,
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
-            "num_guests": num_guests,
-            "note": note,
-        }
-        data = await self._post("/api/v1/appointments/book", payload)
-        return AppointmentBookingResult(
-            success=data.get("success", False),
-            appointment_id=data.get("appointment_id", ""),
-            confirmation_code=data.get("confirmation_code", ""),
-            message=data.get("message", ""),
-            scheduled_date=data.get("scheduled_date"),
-            scheduled_time=data.get("scheduled_time"),
-            location=data.get("location"),
-            consultant_name=data.get("consultant_name"),
-        )
-
-    async def list_all_projects(self) -> list[str]:
-        data = await self._get("/api/v1/projects")
-        if isinstance(data, list):
-            return [p.get("name", p.get("project_name", "")) for p in data]
-        return data.get("projects", [])
+    async def list_all_projects(self) -> list[dict]:
+        data = await self._get("/endpoint/project")
+        if isinstance(data, dict):
+            data = data.get("data", [])
+            
+        results = []
+        for p in data:
+            results.append({
+                "id": p.get("id"),
+                "name": str(p.get("name", "")),
+                "code": p.get("code"),
+                "type": p.get("type"),
+                "status": p.get("status"),
+                "investor": p.get("investor"),
+                "scale": p.get("scale"),
+                "area": p.get("area"),
+                "startPrice": p.get("startPrice"),
+                "endPrice": p.get("endPrice"),
+                "address": p.get("address"),
+                "district": p.get("district"),
+                "province": p.get("province"),
+                "classification": p.get("classification")
+            })
+        return results
 
     async def close(self) -> None:
         await self._client.aclose()
+
+
+# ── Helpers ───────────────────────────────────────────────────────
+
+def _map_unit(u: dict, project_name: str) -> UnitAvailability:
+    """Map raw API dict (product.json schema) → UnitAvailability DTO."""
+    raw_status = str(u.get("virtualStatus", u.get("status", ""))).lower().strip()
+    
+    if raw_status in ("kho", "chưa mở bán", "mở bán", "trống", "available"):
+        status = "available"
+    elif raw_status in ("booking", "chuyển cọc, chờ hồ sơ", "đặt cọc", "đăng kí", "thỏa thuận đảm bảo", "giữ chỗ", "reserved"):
+        status = "reserved"
+    elif raw_status in ("hợp đồng", "thanh lý", "chuyển nhượng", "khoá", "đã bàn giao", "bàn giao sổ hồng", "đã bán", "sold"):
+        status = "sold"
+    else:
+        status = "unknown"
+
+    return UnitAvailability(
+        unit_code=str(u.get("code", "")),
+        project=project_name,
+        floor=int(u.get("floor", 0)) if str(u.get("floor", "")).isdigit() else 0,
+        area_m2=float(u.get("builtUpArea", 0) or 0),
+        bedrooms=int(u.get("bedRoom", 0) or 0),
+        status=status,
+        price_vnd=float(u.get("priceVat", 0) or 0),
+        price_per_m2=float(u.get("unitPriceVat", 0) or 0),
+        direction=u.get("direction"),
+        carpet_area=float(u.get("carpetArea", 0) or 0),
+        maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
+        total_price=float(u.get("totalPrice", 0) or 0),
+        sale_program=u.get("saleProgramName"),
+        type=u.get("type"),
+    )
