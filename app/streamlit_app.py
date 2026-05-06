@@ -10,7 +10,7 @@ from datetime import datetime
 # ─────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="CTlotus AI | Chuyên viên tư vấn BĐS",
+    page_title="CT-Primer AI | Chuyên viên tư vấn BĐS",
     page_icon="✨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -163,7 +163,7 @@ def apply_custom_style():
 # ─────────────────────────────────────────────────────────────────
 
 class ChatbotAPI:
-    def __init__(self, base_url="http://localhost:8000", api_key="chatbot-ctlotus"):
+    def __init__(self, base_url="http://localhost:8000", api_key="chatbot-primer"):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(timeout=60.0)
@@ -226,7 +226,7 @@ def init_session_state():
     if "api_url" not in st.session_state:
         st.session_state.api_url = "http://localhost:8000"
     if "api_key" not in st.session_state:
-        st.session_state.api_key = "chatbot-ctlotus"
+        st.session_state.api_key = "chatbot-primer"
     if "last_bot_time" not in st.session_state:
         st.session_state.last_bot_time = None     # Timestamp sau bot reply cuối
     if "follow_up_sent" not in st.session_state:
@@ -350,7 +350,7 @@ def render_sidebar(api_client: ChatbotAPI):
 
 def render_chat_interface(api_client: ChatbotAPI):
     # Header
-    st.markdown('<div class="gradient-text">CTlotus AI Agent</div>', unsafe_allow_html=True)
+    st.markdown('<div class="gradient-text">CT-Primer AI Agent</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-text">Chuyên viên tư vấn & chăm sóc khách hàng bất động sản 24/7</div>', unsafe_allow_html=True)
 
     # Khung chứa Chat
@@ -359,7 +359,7 @@ def render_chat_interface(api_client: ChatbotAPI):
     with chat_container:
         # Initial greeting if empty
         if not st.session_state.messages:
-            st.info("👋 Chào bạn! Tôi là chuyên viên tư vấn AI của CTlotus. Bạn cần tìm hiểu thông tin, pháp lý, bảng giá hay đặt chỗ cho dự án nào?")
+            st.info("👋 Chào bạn! Tôi là chuyên viên tư vấn AI của CT-Primer. Bạn cần tìm hiểu thông tin, pháp lý, bảng giá hay đặt chỗ cho dự án nào?")
             # Gợi ý câu hỏi mặc định khi chưa có hội thoại
             _render_suggested_questions(
                 api_client,

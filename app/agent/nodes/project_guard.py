@@ -22,15 +22,7 @@ from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
 
-NER_PROMPT = """Bạn là trợ lý trích xuất thực thể tên dự án bất động sản.
-Dưới đây là danh sách các dự án hiện có trong hệ thống:
-{projects}
 
-Khách hàng sẽ đặt một câu hỏi. Nhiệm vụ của bạn là kiểm tra xem trong câu hỏi có nhắc đến dự án nào trong danh sách trên hay không.
-Chú ý: Khách có thể viết tắt, viết sai chính tả một chút. Hãy suy luận cẩn thận.
-Bạn PHẢI trả về JSON với định dạng sau, không kèm bất kỳ markdown hay chữ nào khác:
-{{"found": true_hoặc_false, "project_name": "Tên_dự_án_chính_xác_trong_danh_sách_nếu_có_ngược_lại_để_trống"}}
-"""
 
 # ── Keywords bypass — cho phép đi qua khi hỏi về danh sách dự án ──
 _PROJECT_LISTING_KEYWORDS = [
@@ -102,11 +94,9 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
     Chạy sau classify_intent. 
     Nhiệm vụ: 
       - Đảm bảo dự án được xác định.
-      - Hỗ trợ đổi ngữ cảnh nếu khách nhắc tên dự án khác (Dùng LLM Extract).
       - KHÔNG chặn nếu khách hỏi câu hỏi chung khi đã có sẵn dự án trong session.
     Tối ưu:
       - Cache list_projects (TTL 5 phút)
-      - Chỉ chạy LLM NER khi cần (chưa có project hoặc query hint chuyển dự án)
     """
     cfg = get_settings()
     current_project = state.get("project_name")
@@ -120,70 +110,11 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
 
     # ── 1. Lấy danh sách dự án (cached — TTL 5 phút) ──
     available_projects = await _get_available_projects(registry)
-    project_names = [p["name"] for p in available_projects]
 
     # ── [BYPASS] Yêu cầu liệt kê dự án ──
     if any(k in query.lower() for k in _PROJECT_LISTING_KEYWORDS):
         log.info("project_guard_bypassed_for_listing", query=query)
         return state
-
-    # ── 2. Trích xuất dự án từ query ──
-    # Chỉ gọi LLM NER khi:
-    #   a) Chưa có project (phải detect)
-    #   b) Đã có project NHƯNG query gợi ý nhắc tên dự án khác
-    detected_project_name = None
-    need_ner = (
-        not current_project 
-        or current_project.lower() in ["", "string", "none", "unknown"]
-        or _query_hints_project_switch(query)
-    )
-
-    if need_ner and query and project_names:
-        try:
-            system_msg = NER_PROMPT.format(projects=", ".join(project_names))
-            resp = await llm.chat(
-                messages=[LLMMessage(role="user", content=query)],
-                system=system_msg,
-                temperature=0.0
-            )
-            content = resp.content.strip()
-            if content.startswith("```json"):
-                content = content[7:-3].strip()
-            elif content.startswith("```"):
-                content = content[3:-3].strip()
-                
-            data = json.loads(content)
-            if data.get("found") and data.get("project_name") in project_names:
-                detected_project_name = data.get("project_name")
-        except Exception as e:
-            log.error("project_extraction_failed", error=str(e))
-            # Fallback to exact match as safety net
-            for p_name in project_names:
-                if p_name.lower() in query.lower():
-                    detected_project_name = p_name
-                    break
-    elif not need_ner:
-        log.debug("project_ner_skipped", reason="project_confirmed_no_switch_hint")
-
-    # Nếu phát hiện dự án mới trong query -> Cập nhật context
-    if detected_project_name:
-        # Tìm ID tương ứng
-        p_id = next((p["id"] for p in available_projects if p["name"] == detected_project_name), "unknown")
-        
-        if current_project != detected_project_name:
-            log.info("project_context_switched", old=current_project, new=detected_project_name, id=p_id)
-            state["project_name"] = detected_project_name
-            state["project_id"] = p_id
-            state["project_newly_confirmed"] = True
-            current_project = detected_project_name
-        else:
-            state["project_id"] = p_id
-            log.info("project_confirmed_in_query", project=detected_project_name, id=p_id)
-    elif current_project and current_project.lower() not in ["", "string", "none", "unknown"]:
-        # Đảm bảo project_id luôn được map nếu đã có project_name từ cache
-        if not state.get("project_id"):
-            p_id = next((p["id"] for p in available_projects if p["name"] == current_project), "unknown")
-            state["project_id"] = p_id
 
     # ── 3. Kiểm tra nếu vẫn chưa có dự án nào ──
     if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:

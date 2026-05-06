@@ -121,23 +121,31 @@ class SalesNode:
             if stage == CustomerStage.AWARENESS:
                 state["sales_data"]["price_disclosure_blocked"] = True
 
-            # Chạy tuần tự — tránh race condition
+            # Chạy song song — tối ưu tốc độ
+            tasks = []
             for tc in tool_calls:
                 tool_name = tc.get("name")
                 args = tc.get("arguments", {})
                 
                 state["tool_kwargs"][tool_name] = args
-                await self._run_tool(tool_name, state)
+                tasks.append(self._run_tool_returning_call(tool_name, state))
+                
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    log.error("sales_tool_parallel_execution_failed", error=str(res))
+                elif res is not None:
+                    if "tool_calls" not in state or state["tool_calls"] is None:
+                        state["tool_calls"] = []
+                    state["tool_calls"].append(res)
  
         except Exception as e:
             log.error("sales_tool_decision_failed", error=str(e))
-            if intent == Intent.BOOKING_INTENT:
+            if intent == Intent.CONSULTATION_INTENT:
                 state["final_answer"] = (
                     "Dạ, anh/chị vui lòng cho em xin số điện thoại "
-                    "để chuyên viên hỗ trợ đặt cọc cho mình nhé."
+                    "để chuyên viên hỗ trợ tư vấn cho mình nhé."
                 )
-            elif intent == Intent.APPOINTMENT_INTENT:
-                await self._run_tool("book_appointment", state)
             else:
                 await self._run_tool("get_inventory", state)
  
@@ -197,11 +205,16 @@ class SalesNode:
                     state["tool_calls"] = []
                 state["tool_calls"].append(call)
 
-    async def _run_tool(self, name: str, state: AgentState) -> None:
+    async def _run_tool_returning_call(self, name: str, state: AgentState) -> Any:
         tool = self._registry.get(name)
         if not tool:
-            return
+            return None
         result, call = await tool.execute(state)
-        if "tool_calls" not in state or state["tool_calls"] is None:
-            state["tool_calls"] = []
-        state["tool_calls"].append(call)
+        return call
+
+    async def _run_tool(self, name: str, state: AgentState) -> None:
+        call = await self._run_tool_returning_call(name, state)
+        if call is not None:
+            if "tool_calls" not in state or state["tool_calls"] is None:
+                state["tool_calls"] = []
+            state["tool_calls"].append(call)

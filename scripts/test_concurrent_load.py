@@ -5,7 +5,7 @@ import os
 
 # Cố gắng đọc DEV_API_KEY từ file .env nếu có
 def get_api_key():
-    api_key = "chatbot-ctlotus" # Giá trị mặc định thường dùng
+    api_key = "chatbot-primer" # Giá trị mặc định thường dùng
     env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:

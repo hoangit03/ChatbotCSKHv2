@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     app_secret_key: str = "dev-secret-key-change-in-production-32ch"
     debug: bool = False
     # Key để gọi API trong dev/staging. Đặt trong .env: DEV_API_KEY=...
-    dev_api_key: str = "chatbot-ctlotus"
+    dev_api_key: str = "chatbot-primer"
 
     # ── Brand / Persona ───────────────────────────────────────────
-    bot_name: str = "chatbot CTlotus"
+    bot_name: str = "chatbot CT-Primer"
     company_name: str = "CT Group"
 
     # ── CORS ──────────────────────────────────────────────────────
