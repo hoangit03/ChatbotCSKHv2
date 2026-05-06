@@ -246,11 +246,12 @@ class ConsultationTool(AgentTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "customer_name": {"type": "string", "description": "Họ và tên của khách hàng (trích xuất từ tin nhắn nếu có)"},
-                        "customer_phone": {"type": "string", "description": "Số điện thoại của khách hàng (trích xuất từ tin nhắn nếu có)"},
+                        "customer_name": {"type": "string", "description": "Họ và tên của khách hàng (Bắt buộc trích xuất từ hội thoại)"},
+                        "customer_phone": {"type": "string", "description": "Số điện thoại của khách hàng (Bắt buộc trích xuất từ hội thoại)"},
                         "email": {"type": "string", "description": "Email khách hàng (nếu có)"},
                         "address": {"type": "string", "description": "Địa chỉ khách hàng (nếu có)"},
                     },
+                    "required": ["customer_name", "customer_phone"]
                 },
             },
         }

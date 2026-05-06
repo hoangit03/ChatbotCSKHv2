@@ -34,6 +34,37 @@ class UnitAvailability:
     sale_program: Optional[str] = None
     type: Optional[str] = None
 
+    @classmethod
+    def from_api_dict(cls, u: dict, project_name: str) -> "UnitAvailability":
+        """Map raw API dict (product.json schema) → UnitAvailability DTO."""
+        raw_status = str(u.get("virtualStatus", u.get("status", ""))).lower().strip()
+        
+        if raw_status in ("kho", "chưa mở bán", "mở bán", "trống", "available"):
+            status = "available"
+        elif raw_status in ("booking", "chuyển cọc, chờ hồ sơ", "đặt cọc", "đăng kí", "thỏa thuận đảm bảo", "giữ chỗ", "reserved"):
+            status = "reserved"
+        elif raw_status in ("hợp đồng", "thanh lý", "chuyển nhượng", "khoá", "đã bàn giao", "bàn giao sổ hồng", "đã bán", "sold"):
+            status = "sold"
+        else:
+            status = "unknown"
+
+        return cls(
+            unit_code=str(u.get("code", "")),
+            project=project_name,
+            floor=int(u.get("floor", 0)) if str(u.get("floor", "")).isdigit() else 0,
+            area_m2=float(u.get("builtUpArea", 0) or 0),
+            bedrooms=int(u.get("bedRoom", 0) or 0),
+            status=status,
+            price_vnd=float(u.get("priceVat", 0) or 0),
+            price_per_m2=float(u.get("unitPriceVat", 0) or 0),
+            direction=u.get("direction"),
+            carpet_area=float(u.get("carpetArea", 0) or 0),
+            maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
+            total_price=float(u.get("totalPrice", 0) or 0),
+            sale_program=u.get("saleProgramName"),
+            type=u.get("type"),
+        )
+
 
 @dataclass
 class ProjectInventory:

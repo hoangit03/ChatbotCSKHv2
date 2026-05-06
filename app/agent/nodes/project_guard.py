@@ -47,16 +47,22 @@ _PROJECT_SWITCH_HINTS = [
     "quan tâm", "muốn xem", "thông tin",
 ]
 
-# ── Project List Cache (module-level, shared across requests) ──
-_project_cache: dict = {"projects": [], "ts": 0.0}
-_CACHE_TTL = 300  # 5 phút
-
-
 async def _get_available_projects(registry: ToolRegistry) -> list[dict]:
-    """Lấy danh sách dự án (dict chứa id và name) với cache TTL 5 phút."""
-    now = time.monotonic()
-    if _project_cache["projects"] and (now - _project_cache["ts"]) < _CACHE_TTL:
-        return _project_cache["projects"]
+    """Lấy danh sách dự án (dict chứa id và name) với cache TTL 5 phút từ Redis."""
+    redis_pool = registry.get_redis_pool()
+    client = None
+    cache_key = "system_project_list"
+    _CACHE_TTL = 300
+
+    if redis_pool:
+        import redis.asyncio as aioredis
+        client = aioredis.Redis(connection_pool=redis_pool)
+        try:
+            cached = await client.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception as e:
+            log.warning("redis_project_cache_get_failed", error=str(e))
 
     projects = []
 
@@ -75,10 +81,12 @@ async def _get_available_projects(registry: ToolRegistry) -> list[dict]:
             names = await vdb.list_unique_projects()
             projects = [{"id": "unknown", "name": n} for n in names if n]
 
-    if projects:
-        _project_cache["projects"] = projects
-        _project_cache["ts"] = now
-        log.debug("project_cache_refreshed", count=len(projects))
+    if projects and client:
+        try:
+            await client.set(cache_key, json.dumps(projects, ensure_ascii=False), ex=_CACHE_TTL)
+            log.debug("project_cache_refreshed_in_redis", count=len(projects))
+        except Exception as e:
+            log.warning("redis_project_cache_set_failed", error=str(e))
 
     return projects
 
@@ -171,6 +179,11 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
         else:
             state["project_id"] = p_id
             log.info("project_confirmed_in_query", project=detected_project_name, id=p_id)
+    elif current_project and current_project.lower() not in ["", "string", "none", "unknown"]:
+        # Đảm bảo project_id luôn được map nếu đã có project_name từ cache
+        if not state.get("project_id"):
+            p_id = next((p["id"] for p in available_projects if p["name"] == current_project), "unknown")
+            state["project_id"] = p_id
 
     # ── 3. Kiểm tra nếu vẫn chưa có dự án nào ──
     if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:

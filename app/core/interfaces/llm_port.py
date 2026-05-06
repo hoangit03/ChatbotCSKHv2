@@ -50,6 +50,7 @@ class ChatPort(ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict[str, Any]] | None = None,
+        response_format: dict | None = None,
     ) -> LLMResponse:
         """Gửi messages, nhận response. Không streaming."""
         ...

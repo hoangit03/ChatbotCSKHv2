@@ -72,43 +72,23 @@ async def classify_intent(state: AgentState, llm: ChatPort) -> AgentState:
 
     try:
         system_msg = CLASSIFIER_PROMPT.format(history=history_str)
-        # Bọc query bằng delimiter để chống injection
-        secure_query = f"<user_input>{clean}</user_input>"
+        # Bọc query bằng delimiter để chống injection nhưng LLM vẫn phải parse chuẩn
+        secure_query = f"Input từ người dùng:\n---\n{clean}\n---"
         resp = await llm.chat(
             messages=[LLMMessage(role="user", content=secure_query)],
             system=system_msg,
-            temperature=0.0
+            temperature=0.0,
+            response_format={"type": "json_object"}
         )
         content = resp.content.strip()
-        import re
         data = {}
         try:
-            # Remove markdown blocks if any
-            clean_content = re.sub(r'^```(?:json)?\n', '', content)
-            clean_content = re.sub(r'\n```$', '', clean_content)
-            clean_content = clean_content.strip()
-            
-            match = re.search(r'\{.*\}', clean_content, re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
+            data = json.loads(content)
         except Exception as parse_err:
             log.warning("intent_json_parse_failed", error=str(parse_err), content=content)
             
         if not data:
-            # Fallback string matching
-            cl = content.lower()
-            if "consultation_intent" in cl:
-                data["intent"] = "consultation_intent"
-            elif "comparison_intent" in cl:
-                data["intent"] = "comparison_intent"
-            elif "sales_inquiry" in cl:
-                data["intent"] = "sales_inquiry"
-            elif "customer_support" in cl:
-                data["intent"] = "customer_support"
-            elif "chitchat" in cl:
-                data["intent"] = "chitchat"
-            else:
-                data["intent"] = "unknown"
+            data["intent"] = "unknown"
                 
         intent_str = data.get("intent", "unknown").lower()
         rewritten = data.get("rewritten_query", clean)

@@ -72,12 +72,14 @@ class SalesAPIAdapter(SalesAPIPort):
     # ── Internal helpers ──────────────────────────────────────────
 
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
+        log.info("sales_api_request_get_start", path=path, params=params)
         try:
             resp = await self._client.get(path, params=params)
+            log.info("sales_api_request_get_done", path=path, status=resp.status_code)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            log.error("sales_api_http_error", path=path, status=e.response.status_code)
+            log.error("sales_api_http_error", path=path, status=e.response.status_code, body=e.response.text)
             raise SalesAPIError(
                 f"Sales API error on {path}",
                 upstream_status=e.response.status_code,
@@ -87,8 +89,15 @@ class SalesAPIAdapter(SalesAPIPort):
             raise SalesAPIError(f"Network error on {path}: {str(e)}") from e
 
     async def _post(self, path: str, payload: dict) -> dict:
+        import json
+        log.info("sales_api_request_post_start", path=path, payload=json.dumps(payload, ensure_ascii=False))
         try:
-            resp = await self._client.post(path, json=payload)
+            resp = await self._client.post(
+                path, 
+                json=payload, 
+                headers={"Content-Type": "application/json"}
+            )
+            log.info("sales_api_request_post_done", path=path, status=resp.status_code)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
@@ -117,22 +126,41 @@ class SalesAPIAdapter(SalesAPIPort):
         if isinstance(data, dict):
             data = data.get("data", data.get("units", []))
 
-        return [_map_unit(u, project) for u in data]
+        return [UnitAvailability.from_api_dict(u, project) for u in data]
 
     async def get_project_inventory(self, project: str) -> ProjectInventory:
-        data = await self._get("/endpoint/project", params={"name": project})
-        if isinstance(data, list) and data:
-            data = data[0]
-        elif isinstance(data, dict):
-            # Nếu trả về dict đơn lẻ
-            pass
+        # 1. Lấy thông tin tổng quan của dự án
+        proj_data = await self._get("/endpoint/project", params={"name": project})
+        total_units = 0
+        project_name = project
+        if isinstance(proj_data, list) and proj_data:
+            proj_data = proj_data[0]
+            project_name = proj_data.get("name", project)
+            total_units = int(proj_data.get("scale", 0))
+
+        # 2. Gọi API /endpoint/product để lấy tất cả căn hộ và tự tính toán (aggregation)
+        products_data = await self._get("/endpoint/product", params={"project": project})
+        units = products_data.get("data", products_data.get("units", [])) if isinstance(products_data, dict) else products_data
         
+        available = 0
+        reserved = 0
+        sold = 0
+        
+        for u in units:
+            unit_dto = UnitAvailability.from_api_dict(u, project_name)
+            if unit_dto.status == "available":
+                available += 1
+            elif unit_dto.status == "reserved":
+                reserved += 1
+            elif unit_dto.status == "sold":
+                sold += 1
+
         return ProjectInventory(
-            project=data.get("name", project),
-            total_units=int(data.get("scale", 0)),
-            available=int(data.get("available", 0)),
-            reserved=int(data.get("reserved", 0)),
-            sold=int(data.get("sold", 0)),
+            project=project_name,
+            total_units=total_units,
+            available=available,
+            reserved=reserved,
+            sold=sold,
         )
 
     async def get_payment_policies(self, project: str) -> list[PaymentPolicy]:
@@ -194,7 +222,7 @@ class SalesAPIAdapter(SalesAPIPort):
             if str(u.get("virtualStatus", u.get("status", ""))).lower().strip() in valid_statuses
         ]
 
-        return [_map_unit(u, project) for u in filtered_data]
+        return [UnitAvailability.from_api_dict(u, project) for u in filtered_data]
 
     async def register_consultation(
         self,
@@ -224,6 +252,19 @@ class SalesAPIAdapter(SalesAPIPort):
 
         data = await self._post("/endpoint/consultation", payload)
         
+        if isinstance(data, bool):
+            return ConsultationResult(
+                success=data,
+                consultation_id="",
+                message="Đã ghi nhận yêu cầu tư vấn." if data else "Đăng ký thất bại.",
+                name=name,
+                phoneNumber=phoneNumber,
+                projectId=projectId,
+                projectName=projectName,
+                email=email,
+                address=address
+            )
+            
         return ConsultationResult(
             success=data.get("success", True),
             consultation_id=data.get("id", data.get("consultation_id", "")),
@@ -266,33 +307,3 @@ class SalesAPIAdapter(SalesAPIPort):
 
 
 # ── Helpers ───────────────────────────────────────────────────────
-
-def _map_unit(u: dict, project_name: str) -> UnitAvailability:
-    """Map raw API dict (product.json schema) → UnitAvailability DTO."""
-    raw_status = str(u.get("virtualStatus", u.get("status", ""))).lower().strip()
-    
-    if raw_status in ("kho", "chưa mở bán", "mở bán", "trống", "available"):
-        status = "available"
-    elif raw_status in ("booking", "chuyển cọc, chờ hồ sơ", "đặt cọc", "đăng kí", "thỏa thuận đảm bảo", "giữ chỗ", "reserved"):
-        status = "reserved"
-    elif raw_status in ("hợp đồng", "thanh lý", "chuyển nhượng", "khoá", "đã bàn giao", "bàn giao sổ hồng", "đã bán", "sold"):
-        status = "sold"
-    else:
-        status = "unknown"
-
-    return UnitAvailability(
-        unit_code=str(u.get("code", "")),
-        project=project_name,
-        floor=int(u.get("floor", 0)) if str(u.get("floor", "")).isdigit() else 0,
-        area_m2=float(u.get("builtUpArea", 0) or 0),
-        bedrooms=int(u.get("bedRoom", 0) or 0),
-        status=status,
-        price_vnd=float(u.get("priceVat", 0) or 0),
-        price_per_m2=float(u.get("unitPriceVat", 0) or 0),
-        direction=u.get("direction"),
-        carpet_area=float(u.get("carpetArea", 0) or 0),
-        maintenance_fee=float(u.get("maintenanceFeeValue", 0) or 0),
-        total_price=float(u.get("totalPrice", 0) or 0),
-        sale_program=u.get("saleProgramName"),
-        type=u.get("type"),
-    )

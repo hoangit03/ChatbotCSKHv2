@@ -21,10 +21,12 @@ log = get_logger(__name__)
 _BASE_SALES_PROMPT = """Bạn là chuyên viên tư vấn bất động sản.
 Nhiệm vụ của bạn là phân tích câu hỏi của khách hàng và gọi công cụ (tool) phù hợp nhất để lấy dữ liệu.
  
-LƯU Ý QUAN TRỌNG:
-- KHÔNG BAO GIỜ bịa ra thông tin. Chỉ trích xuất các tiêu chí có sẵn trong câu hỏi.
-- Nếu khách hỏi hiện có bao nhiêu dự án, hoặc danh sách dự án, hãy gọi tool `list_projects`.
-- Nếu câu hỏi không yêu cầu gọi công cụ bán hàng nào, bạn không cần gọi công cụ.
+LƯU Ý QUAN TRỌNG VỀ TOOL:
+- Hỏi danh sách dự án / có những dự án nào: gọi `list_projects`.
+- Hỏi dự án (cụ thể) còn căn trống không / có bao nhiêu căn: gọi `get_inventory`. TUYỆT ĐỐI KHÔNG gọi `list_projects` nếu khách đang hỏi về một dự án cụ thể.
+- Hỏi một căn cụ thể (VD: căn góc, mã căn T1-04): gọi `check_availability`.
+- Tìm căn theo tiêu chí (giá, số phòng): gọi `search_units`.
+- Nếu không cần truy vấn số liệu bán hàng, không gọi tool.
 """
  
 _STAGE_TOOL_GUIDANCE = {
@@ -93,10 +95,7 @@ class SalesNode:
             self._inject_usps(state, stage)  # Re-inject với stage mới
             log.info("comparison_intent_stage_upgraded", session=state.get("session_id"))
  
-        # ── 4. Xử lý đặc biệt cho Consultation Intent ─────────────
-        if intent == Intent.CONSULTATION_INTENT:
-            await self._run_tool("register_consultation", state)
-            return state
+        # ── 4. (Đã gỡ bỏ: Xử lý đặc biệt cho Consultation Intent vì làm mất arguments) ─────────────
 
         # ── 5. Gọi LLM để quyết định gọi tool hay trả lời trực tiếp ──
         stage_guidance = _STAGE_TOOL_GUIDANCE.get(stage, "")
@@ -116,25 +115,17 @@ class SalesNode:
             if not tool_calls and intent == Intent.CONSULTATION_INTENT:
                 tool_calls = [{"name": "register_consultation", "arguments": {}}]
 
+            new_tool_calls = []
+            
+            # [NEW] Price Guard: Giai đoạn 1 không tiết lộ giá chi tiết
+            if stage == CustomerStage.AWARENESS:
+                state["sales_data"]["price_disclosure_blocked"] = True
+
             # Chạy tuần tự — tránh race condition
             for tc in tool_calls:
                 tool_name = tc.get("name")
                 args = tc.get("arguments", {})
-
-                # ── [NEW] Price Guard: Giai đoạn 1 không tiết lộ giá ──
-                if stage == CustomerStage.AWARENESS and tool_name == "check_availability":
-                    log.info(
-                        "price_guard_blocked",
-                        stage=stage.value,
-                        tool=tool_name,
-                        session=state.get("session_id"),
-                    )
-                    # Chặn tiết lộ giá chi tiết căn hộ
-                    state["sales_data"]["price_disclosure_blocked"] = True
-                    # Chuyển sang get_inventory thay thế (không có giá chi tiết)
-                    tool_name = "get_inventory"
-                    args = {}
-
+                
                 state["tool_kwargs"][tool_name] = args
                 await self._run_tool(tool_name, state)
  

@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI):
     from app.agent.tools.qa_tool import QATool
     from app.agent.tools.rag_tool import RAGTool
     # ...
-    registry = ToolRegistry(vdb=vector_db)
+    registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
 
     from app.agent.tools.sales_tool import (
         AvailabilityTool,
