@@ -60,6 +60,7 @@ class ChatPort(ABC):
         self,
         messages: list[LLMMessage],
         system: str = "",
+        response_format: dict | None = None,
     ) -> AsyncIterator[str]:
         """Streaming version — yield từng token."""
         ...

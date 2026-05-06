@@ -175,19 +175,33 @@ class ChatbotAPI:
         except:
             return False
 
-    def send_message(self, message, session_id=None, project_name=None):
+    def send_message_stream(self, message, session_id=None, project_name=None):
         payload = {
             "message": message,
             "session_id": session_id,
             "project_name": project_name
         }
         headers = {"X-API-Key": self.api_key}
-        resp = self.client.post(f"{self.base_url}/api/v1/chat", json=payload, headers=headers)
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            st.error(f"Lỗi kết nối API ({resp.status_code}): {resp.text}")
-            return None
+        self.last_response = None
+        
+        try:
+            with self.client.stream("POST", f"{self.base_url}/api/v1/chat/stream", json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    yield f"Lỗi kết nối API ({resp.status_code})"
+                    return
+                
+                for line in resp.iter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            if data.get("type") == "chunk":
+                                yield data["text"]
+                            elif data.get("type") == "done":
+                                self.last_response = data["response"]
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"Lỗi kết nối API: {str(e)}"
 
     def get_projects(self):
         try:
@@ -233,34 +247,6 @@ def init_session_state():
         st.session_state.follow_up_sent = False   # Chỉ gửi follow-up 1 lần/turn
 
 
-def _send_message_and_append(api_client: ChatbotAPI, text: str):
-    """
-    Gửi tin nhắn lên API, cập nhật session state và rerun.
-    Hàm tái sử dụng cho cả chat input và suggested question click.
-    """
-    st.session_state.messages.append({"role": "user", "content": text})
-    response = api_client.send_message(
-        message=text,
-        session_id=st.session_state.session_id,
-        project_name=st.session_state.get("project_name"),
-    )
-    if response:
-        detected_project = response.get("project_name")
-        if detected_project and detected_project != st.session_state.get("project_name"):
-            st.session_state.project_name = detected_project
-        st.session_state.messages.append({
-            "role":               "assistant",
-            "content":            response["answer"],
-            "sources":            response.get("sources", []),
-            "tool_calls":         response.get("tool_calls", []),
-            "suggested_questions": response.get("suggested_questions", []),
-        })
-        # Reset follow-up timer
-        st.session_state.last_bot_time = time.time()
-        st.session_state.follow_up_sent = False
-    st.rerun()
-
-
 def _render_suggested_questions(
     api_client: ChatbotAPI,
     questions: list[str],
@@ -285,7 +271,8 @@ def _render_suggested_questions(
             key=f"{key_prefix}_q{i}",
             use_container_width=True,
         ):
-            _send_message_and_append(api_client, q)
+            st.session_state.trigger_query = q
+            st.rerun()
 
 def render_sidebar(api_client: ChatbotAPI):
     with st.sidebar:
@@ -414,100 +401,108 @@ def render_chat_interface(api_client: ChatbotAPI):
                         key_prefix=f"suggest_{idx}",
                     )
 
-    # Chat Input Box
-    if prompt := st.chat_input("Nhập câu hỏi của bạn (VD: Giá căn hộ 2PN dự án Metro Star bao nhiêu?)..."):
+    # Chat Input Box or Trigger
+    prompt = st.chat_input("Nhập câu hỏi của bạn (VD: Giá căn hộ 2PN dự án Metro Star bao nhiêu?)...")
+    if st.session_state.get("trigger_query"):
+        prompt = st.session_state.trigger_query
+        st.session_state.trigger_query = None
+
+    if prompt:
         # Reset follow-up state khi user chủ động gỏ
         st.session_state.follow_up_sent = False
         with st.chat_message("user"):
             st.markdown(prompt)
+            
+        st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("assistant"):
-            with st.spinner("Agent đang phân tích và tìm kiếm dữ liệu..."):
-                response = api_client.send_message(
-                    message=prompt,
-                    session_id=st.session_state.session_id,
-                    project_name=st.session_state.get("project_name"),
-                )
+            stream_gen = api_client.send_message_stream(
+                message=prompt,
+                session_id=st.session_state.session_id,
+                project_name=st.session_state.get("project_name"),
+            )
+            
+            full_answer = st.write_stream(stream_gen)
+            response = getattr(api_client, "last_response", None)
 
-                if response:
-                    answer            = response["answer"]
-                    sources           = response.get("sources", [])
-                    tool_calls        = response.get("tool_calls", [])
-                    suggested         = response.get("suggested_questions", [])
-                    detected_project  = response.get("project_name")
-                    sales_data        = response.get("sales_data", {})
+            if response:
+                answer            = response["answer"]
+                sources           = response.get("sources", [])
+                tool_calls        = response.get("tool_calls", [])
+                suggested         = response.get("suggested_questions", [])
+                detected_project  = response.get("project_name")
+                sales_data        = response.get("sales_data", {})
 
-                    if detected_project and detected_project != st.session_state.get("project_name"):
-                        st.session_state.project_name = detected_project
-                        st.toast(f"Hệ thống đã tự động chuyển bối cảnh sang dự án: **{detected_project}**", icon="🎯")
+                if detected_project and detected_project != st.session_state.get("project_name"):
+                    st.session_state.project_name = detected_project
+                    st.toast(f"Hệ thống đã tự động chuyển bối cảnh sang dự án: **{detected_project}**", icon="🎯")
 
+                if not full_answer:
+                    full_answer = answer
                     st.markdown(answer)
 
-                    # Dự án list buttons
-                    project_list = sales_data.get("project_list", [])
-                    if project_list:
-                        st.markdown("---")
-                        st.markdown("### 🎯 Dự án đề xuất")
-                        cols = st.columns(min(len(project_list), 4))
-                        for pidx, p_data in enumerate(project_list):
-                            if isinstance(p_data, dict):
-                                prj_name = p_data.get("name", "Unknown")
-                                prj_loc = p_data.get("province") or p_data.get("address") or ""
-                                btn_text = f"Chọn: {prj_name}"
-                                if prj_loc:
-                                    btn_text += f" ({prj_loc})"
-                            else:
-                                prj_name = str(p_data)
-                                btn_text = f"Chọn: {prj_name}"
+                # Dự án list buttons
+                project_list = sales_data.get("project_list", [])
+                if project_list:
+                    st.markdown("---")
+                    st.markdown("### 🎯 Dự án đề xuất")
+                    cols = st.columns(min(len(project_list), 4))
+                    for pidx, p_data in enumerate(project_list):
+                        if isinstance(p_data, dict):
+                            prj_name = p_data.get("name", "Unknown")
+                            prj_loc = p_data.get("province") or p_data.get("address") or ""
+                            btn_text = f"Chọn: {prj_name}"
+                            if prj_loc:
+                                btn_text += f" ({prj_loc})"
+                        else:
+                            prj_name = str(p_data)
+                            btn_text = f"Chọn: {prj_name}"
 
-                            if cols[pidx % 4].button(btn_text, key=f"btn_prj_{pidx}"):
-                                _send_message_and_append(
-                                    api_client,
-                                    f"Tôi muốn tìm hiểu về dự án {prj_name}",
-                                )
+                        if cols[pidx % 4].button(btn_text, key=f"btn_prj_{pidx}"):
+                            st.session_state.trigger_query = f"Tôi muốn tìm hiểu về dự án {prj_name}"
+                            st.rerun()
 
-                    # Lưu message vào session (kèm suggested_questions)
-                    st.session_state.messages.append({"role": "user", "content": prompt})
-                    st.session_state.messages.append({
-                        "role":               "assistant",
-                        "content":            answer,
-                        "sources":            sources,
-                        "tool_calls":         tool_calls,
-                        "suggested_questions": suggested,
-                    })
+                # Lưu message vào session (kèm suggested_questions)
+                st.session_state.messages.append({
+                    "role":               "assistant",
+                    "content":            full_answer,
+                    "sources":            sources,
+                    "tool_calls":         tool_calls,
+                    "suggested_questions": suggested,
+                })
 
-                    # Cập nhật timer cho auto follow-up
-                    st.session_state.last_bot_time = time.time()
-                    st.session_state.follow_up_sent = False
+                # Cập nhật timer cho auto follow-up
+                st.session_state.last_bot_time = time.time()
+                st.session_state.follow_up_sent = False
 
-                    # Hiển thị sources / tool traces cho response hiện tại
-                    if sources:
-                        with st.expander("📚 Xem nguồn tham khảo (RAG/QA)"):
-                            for src in sources:
-                                st.markdown(f"""
-                                <div class="source-card">
-                                    <div class="source-title">📄 {src['document_name']}</div>
-                                    <div style="color: #cbd5e1; line-height: 1.5;">{src['excerpt']}</div>
+                # Hiển thị sources / tool traces cho response hiện tại
+                if sources:
+                    with st.expander("📚 Xem nguồn tham khảo (RAG/QA)"):
+                        for src in sources:
+                            st.markdown(f"""
+                            <div class="source-card">
+                                <div class="source-title">📄 {src['document_name']}</div>
+                                <div style="color: #cbd5e1; line-height: 1.5;">{src['excerpt']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                if tool_calls:
+                    with st.expander("⚙️ Xem quá trình Agent suy luận"):
+                        for tool in tool_calls:
+                            status_ic = "✅" if tool.get("success") else "❌"
+                            st.markdown(f"**{status_ic} {tool['tool_name']}** `{tool['duration_ms']}ms`")
+                            st.markdown(f"""
+                            <div style="background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 10px;">
+                                <div style="font-family: monospace; font-size: 0.85rem; color: #94a3b8;">
+                                    <b>Input:</b> {tool['input_summary']}<br/>
+                                    <b>Output:</b> {tool['output_summary']}
                                 </div>
-                                """, unsafe_allow_html=True)
-
-                    if tool_calls:
-                        with st.expander("⚙️ Xem quá trình Agent suy luận"):
-                            for tool in tool_calls:
-                                status_ic = "✅" if tool.get("success") else "❌"
-                                st.markdown(f"**{status_ic} {tool['tool_name']}** `{tool['duration_ms']}ms`")
-                                st.markdown(f"""
-                                <div style="background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 10px;">
-                                    <div style="font-family: monospace; font-size: 0.85rem; color: #94a3b8;">
-                                        <b>Input:</b> {tool['input_summary']}<br/>
-                                        <b>Output:</b> {tool['output_summary']}
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                    
-                    st.rerun()
-                else:
-                    st.error("Không thể kết nối đến AI Server. Vui lòng thử lại sau.")
+                            </div>
+                            """, unsafe_allow_html=True)
+                
+                st.rerun()
+            else:
+                st.error("Không thể kết nối đến AI Server. Vui lòng thử lại sau.")
 
     # [NEW] Auto follow-up sau 15s nếu khách không phản hồi
     FOLLOW_UP_DELAY = 15  # giây

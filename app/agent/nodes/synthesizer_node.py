@@ -139,7 +139,7 @@ class SynthesizerNode:
     def __init__(self, llm: ChatPort):
         self._llm = llm
 
-    async def __call__(self, state: AgentState) -> AgentState:
+    async def __call__(self, state: AgentState, config: dict | None = None) -> AgentState:
         # Đã có final_answer từ trước (vd: booking slot filling)
         if state.get("final_answer"):
             log.info("synthesizer_skip_already_answered", session=state.get("session_id"))
@@ -215,14 +215,34 @@ class SynthesizerNode:
                 )
 
             try:
-                resp = await asyncio.wait_for(
-                    self._llm.chat(
+                stream_queue = None
+                if config and "configurable" in config:
+                    stream_queue = config["configurable"].get("stream_queue")
+
+                if stream_queue:
+                    resp_content = ""
+                    async for chunk in self._llm.chat_stream(
                         messages=[LLMMessage(role="user", content=prompt)],
                         system=system_msg,
                         response_format={"type": "json_object"}
-                    ),
-                    timeout=30.0,
-                )
+                    ):
+                        resp_content += chunk
+                        await stream_queue.put({"type": "chunk", "text": chunk})
+                    
+                    class DummyResp:
+                        content = resp_content
+                        input_tokens = 0
+                        output_tokens = 0
+                    resp = DummyResp()
+                else:
+                    resp = await asyncio.wait_for(
+                        self._llm.chat(
+                            messages=[LLMMessage(role="user", content=prompt)],
+                            system=system_msg,
+                            response_format={"type": "json_object"}
+                        ),
+                        timeout=30.0,
+                    )
 
                 # Parse output JSON (answer + suggested_questions)
                 answer, suggested = _parse_llm_output(resp.content)

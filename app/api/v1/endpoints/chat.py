@@ -142,3 +142,25 @@ async def chat(body: ChatIn, request: Request) -> ChatOut:
         suggested_questions=resp.suggested_questions,
         sales_data=resp.sales_data,
     )
+
+
+@router.post(
+    "/stream",
+    summary="Gửi câu hỏi và nhận câu trả lời dạng Server-Sent Events (SSE)",
+)
+async def chat_stream(body: ChatIn, request: Request):
+    from fastapi.responses import StreamingResponse
+    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+
+    chat_req = ChatRequest(
+        message=body.message,
+        session_id=body.session_id,
+        project_name=body.project_name,
+        customer_name=body.customer_name,
+        customer_phone=body.customer_phone,
+    )
+
+    return StreamingResponse(
+        uc.execute_stream(chat_req),
+        media_type="text/event-stream"
+    )

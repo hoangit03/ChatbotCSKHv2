@@ -188,6 +188,164 @@ class HandleChatUseCase:
         return response
 
 
+    async def execute_stream(self, req: ChatRequest):
+        """
+        Yields SSE chunks:
+        1. {"type": "chunk", "text": "..."}
+        2. {"type": "done", "response": ChatResponse}
+        """
+        session_id = req.session_id or _new_session_id()
+        t0 = time.monotonic()
+
+        state = make_initial_state(
+            session_id=session_id,
+            raw_query=req.message,
+            project_name=req.project_name,
+        )
+
+        if self._history:
+            history = await self._history.get_history(session_id, limit=20)
+            state["messages"] = history
+            ctx = await self._history.get_context(session_id)
+            cached_project = ctx.get("project_name")
+            if not req.project_name or req.project_name.lower() in ["", "string", "none"]:
+                state["project_name"] = cached_project
+            else:
+                state["project_name"] = req.project_name
+
+        if req.customer_name or req.customer_phone:
+            state["sales_data"] = {
+                "customer_name":  req.customer_name or "",
+                "customer_phone": req.customer_phone or "",
+            }
+
+        final_state = None
+        error_msg = None
+
+        try:
+            import json
+            import re
+            
+            in_answer = False
+            answer_started = False
+            buffer = ""
+            
+            import asyncio
+            
+            final_state = state.copy()
+            stream_queue = asyncio.Queue()
+            
+            async def run_graph():
+                try:
+                    out = await self._graph.ainvoke(state, config={"configurable": {"stream_queue": stream_queue}})
+                    await stream_queue.put({"type": "done_state", "state": out})
+                except Exception as e:
+                    import traceback
+                    await stream_queue.put({"type": "error", "error": str(e), "tb": traceback.format_exc()})
+
+            # Chạy graph trong background task
+            task = asyncio.create_task(run_graph())
+
+            while True:
+                event = await stream_queue.get()
+                
+                if event["type"] == "done_state":
+                    out_data = event["state"]
+                    if isinstance(out_data, dict):
+                        for k, v in out_data.items():
+                            if k in ["final_answer", "intent", "sources", "tool_calls", "suggested_questions", "project_name", "sales_data"]:
+                                final_state[k] = v
+                    break
+                elif event["type"] == "error":
+                    error_msg = f"{event['error']}\n{event['tb']}"
+                    break
+                elif event["type"] == "chunk":
+                    chunk_content = event["text"]
+                    if chunk_content:
+                        buffer += chunk_content
+                        
+                        if not answer_started:
+                            match = re.search(r'"answer"\s*:\s*"', buffer)
+                            if match:
+                                answer_started = True
+                                in_answer = True
+                                buffer = buffer[match.end():]
+                        
+                        if in_answer:
+                            # Tìm dấu nháy kép đóng (không bị escape)
+                            match = re.search(r'(?<!\\)"', buffer)
+                            if match:
+                                in_answer = False
+                                text_to_yield = buffer[:match.start()]
+                                buffer = buffer[match.end():]
+                                # Unescape characters
+                                clean_text = text_to_yield.replace('\\"', '"').replace('\\n', '\n')
+                                if clean_text:
+                                    yield json.dumps({"type": "chunk", "text": clean_text}) + "\n"
+                            else:
+                                if buffer.endswith('\\'):
+                                    text_to_yield = buffer[:-1]
+                                    buffer = buffer[-1:]
+                                else:
+                                    text_to_yield = buffer
+                                    buffer = ""
+                                clean_text = text_to_yield.replace('\\"', '"').replace('\\n', '\n')
+                                if clean_text:
+                                    yield json.dumps({"type": "chunk", "text": clean_text}) + "\n"
+
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            log.error("chat_stream_error", session_id=session_id, error=str(e), tb=tb)
+            error_msg = f"{str(e)}\n{tb}"
+
+        if not final_state.get("final_answer"):
+            # Fallback nếu lỗi graph
+            final_state["final_answer"] = (
+                "Dạ, hiện tại hệ thống đang xử lý quá nhiều yêu cầu nên phản hồi chậm. "
+                "Anh/chị vui lòng để lại số điện thoại để chuyên viên tư vấn gọi lại hỗ trợ mình ngay nhé."
+            )
+            final_state["intent"] = "unknown"
+            final_state["fallback"] = True
+            final_state["fallback_reason"] = error_msg or "Unknown streaming error"
+
+        # Map state → response (giống hàm execute)
+        raw_intent = final_state.get("intent", "unknown")
+        intent_str = raw_intent.value if hasattr(raw_intent, "value") else str(raw_intent)
+        response = ChatResponse(
+            session_id=session_id,
+            answer=final_state.get("final_answer", ""),
+            intent=intent_str,
+            sources=_map_sources(final_state.get("sources", [])),
+            tool_calls=_map_tool_calls(final_state.get("tool_calls", [])),
+            fallback=final_state.get("fallback", False),
+            fallback_reason=final_state.get("fallback_reason", ""),
+            was_injected=final_state.get("was_injected", False),
+            project_name=final_state.get("project_name"),
+            response_time_ms=_ms(t0),
+            suggested_questions=final_state.get("suggested_questions", []),
+            sales_data=final_state.get("sales_data", {}),
+        )
+
+        if self._history:
+            await self._history.append(session_id, "user", req.message)
+            await self._history.append(session_id, "assistant", response.answer)
+            if response.project_name:
+                await self._history.set_context(session_id, {"project_name": response.project_name})
+
+        if self._activity_log:
+            try:
+                await self._activity_log.log_chat_event(req, response)
+            except Exception as log_err:
+                log.warning("activity_log_failed", error=str(log_err))
+
+        # Ép kiểu dataclass thành dict để dump JSON dễ dàng (dùng asdict)
+        import dataclasses
+        resp_dict = dataclasses.asdict(response)
+        
+        # Gửi package cuối cùng (done) chứa metadata và full text
+        yield json.dumps({"type": "done", "response": resp_dict}) + "\n"
+
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _new_session_id() -> str:

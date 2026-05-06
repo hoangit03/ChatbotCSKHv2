@@ -105,6 +105,7 @@ class OpenAICompatProvider(ChatPort):
         self,
         messages: list[LLMMessage],
         system: str = "",
+        response_format: dict | None = None,
     ) -> AsyncIterator[str]:
         api_msgs: list[dict] = []
         if system:
@@ -112,11 +113,15 @@ class OpenAICompatProvider(ChatPort):
         for m in messages:
             api_msgs.append({"role": m.role, "content": m.content})
 
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=api_msgs,
-            stream=True,
-        )
+        kwargs_api = {
+            "model": self._model,
+            "messages": api_msgs,
+            "stream": True,
+        }
+        if response_format:
+            kwargs_api["response_format"] = response_format
+
+        stream = await self._client.chat.completions.create(**kwargs_api)
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta and delta.content:
