@@ -214,51 +214,99 @@ class SynthesizerNode:
                     "mời khách đến xem sa bàn/nhà mẫu để có báo giá chính xác kèm quà tặng."
                 )
 
-            try:
-                resp = await asyncio.wait_for(
-                    self._llm.chat(
+            if state.get("stream_queue"):
+                import asyncio
+                queue: asyncio.Queue = state["stream_queue"]
+                
+                # Hàm generate gợi ý chạy ngầm
+                async def _gen_suggestions():
+                    try:
+                        sug_prompt = "Dựa trên ngữ cảnh và câu hỏi, hãy gợi ý 2 câu hỏi tiếp theo khách hàng có thể hỏi. Format JSON: {\"suggested_questions\": [\"cau 1\", \"cau 2\"]}"
+                        resp = await self._llm.chat(
+                            messages=[LLMMessage(role="user", content=prompt + "\n\n" + sug_prompt)],
+                            system=system_msg,
+                            response_format={"type": "json_object"}
+                        )
+                        _, sug = _parse_llm_output(resp.content)
+                        return sug
+                    except Exception:
+                        return []
+                
+                sug_task = asyncio.create_task(_gen_suggestions())
+                
+                # Đổi prompt để LLM chỉ trả lời văn bản thuần (tránh xuất json)
+                system_msg_stream = system_msg.replace("Trả về JSON với 2 trường sau", "TUYỆT ĐỐI KHÔNG TRẢ VỀ JSON. Trả lời bằng văn bản thuần túy.")
+                
+                answer_chunks = []
+                try:
+                    async for token in self._llm.chat_stream(
                         messages=[LLMMessage(role="user", content=prompt)],
-                        system=system_msg,
-                        response_format={"type": "json_object"}
-                    ),
-                    timeout=30.0,
-                )
-
-                # Parse output JSON (answer + suggested_questions)
-                answer, suggested = _parse_llm_output(resp.content)
-                state["final_answer"] = answer
-                state["suggested_questions"] = suggested
-
+                        system=system_msg_stream,
+                    ):
+                        answer_chunks.append(token)
+                        await queue.put({"type": "token", "content": token})
+                    
+                    state["final_answer"] = "".join(answer_chunks)
+                    # Chờ lấy gợi ý
+                    suggested = await sug_task
+                    state["suggested_questions"] = suggested
+                    await queue.put({"type": "suggestions", "content": suggested})
+                    
+                except asyncio.TimeoutError:
+                    log.error("synthesizer_stream_timeout", session=state.get("session_id"))
+                    state["final_answer"] = FALLBACK_MESSAGE
+                    state["fallback"] = True
+                finally:
+                    await queue.put({"type": "done"})
+                
                 duration_ms = int((time.monotonic() - t0) * 1000)
-                call = ToolCall(
-                    tool_name="llm_synthesizer",
-                    input_summary=(
-                        f"context_len={len(context)}, qa_hit={state.get('qa_hit', False)}, "
-                        f"query={state['raw_query'][:60]!r}"
-                    ),
-                    output_summary=(
-                        f"answer_len={len(answer)}, suggestions={len(suggested)}, "
-                        f"tokens={resp.input_tokens}+{resp.output_tokens}"
-                    ),
-                    duration_ms=duration_ms,
-                    success=True,
-                )
-                state["tool_calls"] = state.get("tool_calls", []) + [call]
-                log.info(
-                    "synthesizer_done",
-                    session=state.get("session_id"),
-                    duration_ms=duration_ms,
-                    qa_hit=state.get("qa_hit", False),
-                    suggestions=len(suggested),
-                    provider=self._llm.provider_name,
-                )
+            else:
+                # Normal JSON non-stream mode
+                try:
+                    resp = await asyncio.wait_for(
+                        self._llm.chat(
+                            messages=[LLMMessage(role="user", content=prompt)],
+                            system=system_msg,
+                            response_format={"type": "json_object"}
+                        ),
+                        timeout=30.0,
+                    )
 
-            except asyncio.TimeoutError:
-                log.error("synthesizer_llm_timeout", session=state.get("session_id"))
-                state["final_answer"] = FALLBACK_MESSAGE
-                state["suggested_questions"] = []
-                state["fallback"] = True
-                state["fallback_reason"] = "LLM timeout"
+                    # Parse output JSON (answer + suggested_questions)
+                    answer, suggested = _parse_llm_output(resp.content)
+                    state["final_answer"] = answer
+                    state["suggested_questions"] = suggested
+
+                    duration_ms = int((time.monotonic() - t0) * 1000)
+                    call = ToolCall(
+                        tool_name="llm_synthesizer",
+                        input_summary=(
+                            f"context_len={len(context)}, qa_hit={state.get('qa_hit', False)}, "
+                            f"query={state['raw_query'][:60]!r}"
+                        ),
+                        output_summary=(
+                            f"answer_len={len(answer)}, suggestions={len(suggested)}, "
+                            f"tokens={resp.input_tokens}+{resp.output_tokens}"
+                        ),
+                        duration_ms=duration_ms,
+                        success=True,
+                    )
+                    state["tool_calls"] = state.get("tool_calls", []) + [call]
+                    log.info(
+                        "synthesizer_done",
+                        session=state.get("session_id"),
+                        duration_ms=duration_ms,
+                        qa_hit=state.get("qa_hit", False),
+                        suggestions=len(suggested),
+                        provider=self._llm.provider_name,
+                    )
+
+                except asyncio.TimeoutError:
+                    log.error("synthesizer_llm_timeout", session=state.get("session_id"))
+                    state["final_answer"] = FALLBACK_MESSAGE
+                    state["suggested_questions"] = []
+                    state["fallback"] = True
+                    state["fallback_reason"] = "LLM timeout"
 
         except Exception as e:
             log.error("synthesizer_llm_error", error=str(e))

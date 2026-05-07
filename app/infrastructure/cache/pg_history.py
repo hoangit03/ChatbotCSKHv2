@@ -6,6 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@core_postgres:5432/llmerp")
+if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 async def save_chat_message_async(session_id: str, role: str, content: str, user_id: str = None, tenant_id: str = None):
     """Lưu tin nhắn vào PostgreSQL bất đồng bộ"""

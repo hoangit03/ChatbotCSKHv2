@@ -197,11 +197,107 @@ class HandleChatUseCase:
 
         return response
 
+    async def execute_stream(self, req: ChatRequest):
+        """
+        [NEW] Stream mode for CB-02.
+        Yields SSE chunks: `data: {"text": "..."}`
+        """
+        import json
+        session_id = req.session_id or _new_session_id()
+        t0 = time.monotonic()
+
+        log.info(
+            "chat_stream_start",
+            session_id=session_id,
+            project=req.project_name,
+            msg_len=len(req.message),
+        )
+
+        queue = asyncio.Queue()
+        state = make_initial_state(
+            session_id=session_id,
+            raw_query=req.message,
+            project_name=req.project_name,
+            min_role_level=int(req.role_level) if req.role_level else None,
+        )
+        state["stream_queue"] = queue
+
+        # Load history and context
+        if self._history:
+            history = await self._history.get_history(session_id, limit=20)
+            state["messages"] = history
+            ctx = await self._history.get_context(session_id)
+            cached_project = ctx.get("project_name")
+            if not req.project_name or req.project_name.lower() in ["", "string", "none"]:
+                state["project_name"] = cached_project
+            else:
+                state["project_name"] = req.project_name
+
+        if req.customer_name or req.customer_phone:
+            state["sales_data"] = {
+                "customer_name":  req.customer_name or "",
+                "customer_phone": req.customer_phone or "",
+            }
+
+        # Run graph in background task
+        graph_task = asyncio.create_task(self._graph.ainvoke(state))
+
+        # Stream from queue
+        while True:
+            chunk = await queue.get()
+            if chunk["type"] == "done":
+                break
+            elif chunk["type"] == "token":
+                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+            elif chunk["type"] == "suggestions":
+                yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
+
+        # Wait for graph to finish completely
+        final_state = await graph_task
+        
+        # Map response
+        raw_intent = final_state.get("intent", "unknown")
+        intent_str = raw_intent.value if hasattr(raw_intent, "value") else str(raw_intent)
+        response = ChatResponse(
+            session_id=session_id,
+            answer=final_state.get("final_answer", ""),
+            intent=intent_str,
+            sources=_map_sources(final_state.get("sources", [])),
+            tool_calls=_map_tool_calls(final_state.get("tool_calls", [])),
+            fallback=final_state.get("fallback", False),
+            fallback_reason=final_state.get("fallback_reason", ""),
+            was_injected=final_state.get("was_injected", False),
+            project_name=final_state.get("project_name"),
+            response_time_ms=_ms(t0),
+            suggested_questions=final_state.get("suggested_questions", []),
+            sales_data=final_state.get("sales_data", {}),
+        )
+
+        # Save history
+        if self._history:
+            await self._history.append(session_id, "user", req.message)
+            await self._history.append(session_id, "assistant", response.answer)
+            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
+            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            
+            if response.project_name:
+                await self._history.set_context(session_id, {"project_name": response.project_name})
+
+        # Send raw sources/tool calls at the end
+        metadata_chunk = {
+            "sources": [{"doc": s.document_name, "excerpt": s.excerpt} for s in response.sources],
+            "intent": response.intent,
+            "session_id": session_id
+        }
+        yield f"data: {json.dumps(metadata_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
 
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _new_session_id() -> str:
-    return f"sess_{secrets.token_urlsafe(10)}"
+    import uuid
+    return str(uuid.uuid4())
 
 
 def _ms(t0: float) -> int:

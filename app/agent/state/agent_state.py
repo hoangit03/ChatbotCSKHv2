@@ -179,6 +179,7 @@ class AgentState(TypedDict):
     booking_confirmation: bool          # Khách đã confirm booking chưa
     price_disclosed: bool               # Giá đã được cho phép tiết lộ chưa
     suggested_questions: list           # 3 câu hỏi gợi ý tiếp theo (generate bởi Synthesizer)
+    stream_queue: Optional[Any]         # [NEW] Dùng để stream tokens từ Synthesizer ra API
 
 
 # ── Factory ────────────────────────────────────────────────────────
@@ -230,4 +231,5 @@ def make_initial_state(
         booking_confirmation=False,
         price_disclosed=False,
         suggested_questions=[],
+        stream_queue=None,
     )

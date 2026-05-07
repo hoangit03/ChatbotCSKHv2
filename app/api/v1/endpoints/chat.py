@@ -156,3 +156,38 @@ async def chat(
         suggested_questions=resp.suggested_questions,
         sales_data=resp.sales_data,
     )
+
+from fastapi.responses import StreamingResponse
+
+@router.post(
+    "/stream",
+    summary="Gửi câu hỏi và stream câu trả lời theo SSE",
+    description="Trả về từng chữ (token) qua chuẩn Server-Sent Events (SSE). Phù hợp cho UI giảm độ trễ (TTFT).",
+)
+async def chat_stream(
+    body: ChatIn, 
+    request: Request,
+    x_user_id: Optional[str] = Header(None),
+    x_tenant_id: Optional[str] = Header(None),
+    x_role_level: Optional[str] = Header("1"),
+    x_session_id: Optional[str] = Header(None)
+):
+    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    
+    final_session_id = x_session_id or body.session_id
+
+    chat_req = ChatRequest(
+        message=body.message,
+        session_id=final_session_id,
+        project_name=body.project_name,
+        customer_name=body.customer_name,
+        customer_phone=body.customer_phone,
+        user_id=x_user_id,
+        tenant_id=x_tenant_id,
+        role_level=x_role_level
+    )
+
+    return StreamingResponse(
+        uc.execute_stream(chat_req),
+        media_type="text/event-stream"
+    )
