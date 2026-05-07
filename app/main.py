@@ -67,7 +67,23 @@ async def lifespan(app: FastAPI):
         api_key=cfg.qdrant_api_key,
         collection=cfg.qdrant_collection,
     )
-    await vector_db.ensure_collection(dimension=cfg.embedding_dimension)
+    
+    # Retry logic for Qdrant connection during startup
+    import asyncio
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            await vector_db.ensure_collection(dimension=cfg.embedding_dimension)
+            log.info("qdrant_connected_successfully")
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                log.error("qdrant_connection_failed", error=str(e))
+                # Không raise exception để app vẫn start được (tránh crash loop), nhưng RAG sẽ lỗi
+            else:
+                log.warning("qdrant_connection_retry", attempt=attempt, max_retries=max_retries, error=str(e))
+                await asyncio.sleep(5)
+                
     app.state.vector_db = vector_db
 
     # ── 4. Storage ────────────────────────────────────────────────
