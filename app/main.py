@@ -111,16 +111,14 @@ async def lifespan(app: FastAPI):
     from app.agent.tools.qa_tool import QATool
     from app.agent.tools.rag_tool import RAGTool
     # ...
-    registry = ToolRegistry(vdb=vector_db)
+    registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
 
     from app.agent.tools.sales_tool import (
-        AppointmentTool,
         AvailabilityTool,
-        BookingIntentTool,
         InventoryTool,
-        PaymentTool,
         UnitSearchTool,
         ProjectListTool,
+        ConsultationTool,
     )
 
     registry.register(QATool(store=qa_store))
@@ -137,11 +135,9 @@ async def lifespan(app: FastAPI):
     if cfg.sales_api_configured:
         registry.register(AvailabilityTool(api=sales_api))
         registry.register(InventoryTool(api=sales_api))
-        registry.register(PaymentTool(api=sales_api))
         registry.register(UnitSearchTool(api=sales_api))
-        registry.register(BookingIntentTool(api=sales_api))
         registry.register(ProjectListTool(api=sales_api))
-        registry.register(AppointmentTool(api=sales_api))
+        registry.register(ConsultationTool(api=sales_api))
         log.info("sales_tools_registered")
     else:
         log.warning(
@@ -165,8 +161,11 @@ async def lifespan(app: FastAPI):
     from app.application.usecases.handle_chat import HandleChatUseCase
     from app.application.usecases.import_qa import ImportQAUseCase
     from app.infrastructure.cache.redis_history import RedisHistoryStore
+    from app.shared.logging.user_activity_log import UserActivityLogger
 
-    history_store = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
+    history_store    = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
+    activity_logger  = UserActivityLogger(log_dir="./storage/logs")
+    log.info("user_activity_logger_ready", log_dir="./storage/logs")
 
     app.state.upload_doc_uc  = UploadDocumentUseCase(
         cfg=cfg,
@@ -177,7 +176,8 @@ async def lifespan(app: FastAPI):
     )
     app.state.handle_chat_uc = HandleChatUseCase(
         agent_graph=agent_graph,
-        history_store=history_store
+        history_store=history_store,
+        activity_logger=activity_logger,
     )
     import_qa_uc = ImportQAUseCase(qa_store=qa_store)
     app.state.import_qa_uc  = import_qa_uc

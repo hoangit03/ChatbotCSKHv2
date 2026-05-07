@@ -71,6 +71,8 @@ class ChatOut(BaseModel):
     was_injected: bool = False
     project_name: Optional[str] = None
     response_time_ms: int
+    suggested_questions: list[str] = []  # 3 câu hỏi gợi ý tiếp theo
+    sales_data: dict = {}               # Raw sales data cho UI (project_list...)
 
 
 # ── Endpoint ──────────────────────────────────────────────────────
@@ -151,4 +153,6 @@ async def chat(
         was_injected=resp.was_injected,
         project_name=resp.project_name,
         response_time_ms=resp.response_time_ms,
+        suggested_questions=resp.suggested_questions,
+        sales_data=resp.sales_data,
     )

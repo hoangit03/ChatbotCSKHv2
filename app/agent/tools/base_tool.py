@@ -97,9 +97,10 @@ class ToolRegistry:
     OCP: thêm tool = register(), không sửa code khác.
     """
 
-    def __init__(self, vdb: Optional[VectorPort] = None) -> None:
+    def __init__(self, vdb: Optional[VectorPort] = None, redis_pool=None) -> None:
         self._tools: dict[str, AgentTool] = {}
         self._vdb = vdb
+        self._redis_pool = redis_pool
 
     def register(self, tool: AgentTool) -> None:
         self._tools[tool.name] = tool
@@ -109,6 +110,9 @@ class ToolRegistry:
         if not self._vdb:
             raise ValueError("Vector DB not initialized in ToolRegistry")
         return self._vdb
+        
+    def get_redis_pool(self):
+        return self._redis_pool
 
 
     def get(self, name: str) -> AgentTool | None:

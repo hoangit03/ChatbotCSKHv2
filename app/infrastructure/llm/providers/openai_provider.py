@@ -58,6 +58,7 @@ class OpenAICompatProvider(ChatPort):
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict[str, Any]] | None = None,
+        response_format: dict | None = None,
     ) -> LLMResponse:
         api_msgs: list[dict] = []
         if system:
@@ -73,6 +74,8 @@ class OpenAICompatProvider(ChatPort):
         }
         if tools:
             kwargs_api["tools"] = tools
+        if response_format:
+            kwargs_api["response_format"] = response_format
 
         resp = await self._client.chat.completions.create(**kwargs_api)
         choice = resp.choices[0]

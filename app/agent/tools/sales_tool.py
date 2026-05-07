@@ -1,17 +1,12 @@
 """
 app/agent/tools/sales_tool.py
 
-Các tool gọi Sales Backend API.
-Tách thành nhiều tool nhỏ (ISP) thay vì một tool lớn:
-  - AvailabilityTool  : kiểm tra căn hộ còn trống
-  - InventoryTool     : tổng tồn kho dự án
-  - PaymentTool       : chính sách thanh toán/vay
-  - UnitSearchTool    : tìm căn theo tiêu chí
-  - BookingIntentTool : đăng ký đặt cọc/giữ chỗ
+Các tool gọi Sales Backend API v2.
+Endpoints: /endpoint/product, /endpoint/project, /endpoint/consultation.
 """
 from __future__ import annotations
 
-import re
+from datetime import date as _date
 from typing import Optional
 
 from app.agent.state.agent_state import AgentState, ScarcityLevel
@@ -22,14 +17,18 @@ from app.shared.logging.logger import get_logger
 
 log = get_logger(__name__)
 
-# Ngưỡng scarcity — có thể config
+# Ngưỡng scarcity
 _SCARCITY_CRITICAL = 2
 _SCARCITY_MEDIUM   = 5
 _SCARCITY_LOW      = 10
 
 
-def _project(state: AgentState) -> str:
+def _project_name(state: AgentState) -> str:
     return state.get("project_name") or "unknown"
+
+
+def _project_id(state: AgentState) -> str:
+    return state.get("project_id") or ""
 
 
 def _fmt_vnd(amount: float) -> str:
@@ -42,10 +41,6 @@ def _fmt_vnd(amount: float) -> str:
 
 
 def _compute_scarcity(available_count: int) -> str:
-    """
-    [NEW] Tính ScarcityLevel từ số căn còn trống.
-    Được dùng để inject FOMO messaging trong Synthesizer.
-    """
     if available_count <= _SCARCITY_CRITICAL:
         return ScarcityLevel.CRITICAL
     if available_count <= _SCARCITY_MEDIUM:
@@ -54,8 +49,8 @@ def _compute_scarcity(available_count: int) -> str:
         return ScarcityLevel.LOW
     return ScarcityLevel.NONE
 
+
 def _unit_to_dict(u) -> dict:
-    """Convert UnitAvailability → dict chuẩn cho sales_data."""
     return {
         "unit_code":       u.unit_code,
         "bedrooms":        u.bedrooms,
@@ -66,13 +61,14 @@ def _unit_to_dict(u) -> dict:
         "floor":           u.floor,
         "direction":       u.direction,
         "sale_program":    u.sale_program,
-        "maintenance_fee": _fmt_vnd(u.maintenance_fee) if u.maintenance_fee else None,
         "status":          u.status,
     }
+
 
 # ── Tool 1: Availability ──────────────────────────────────────────
 
 class AvailabilityTool(AgentTool):
+    """Kiểm tra một căn hộ cụ thể còn trống không."""
 
     def __init__(self, api: SalesAPIPort):
         self._api = api
@@ -83,7 +79,7 @@ class AvailabilityTool(AgentTool):
 
     @property
     def description(self) -> str:
-        return "Kiểm tra căn hộ còn trống không. Dùng khi hỏi 'còn căn không', 'căn X còn chưa'."
+        return "Kiểm tra trạng thái của một căn hộ cụ thể theo mã căn (VD: T1-A14-03)."
 
     @property
     def tool_schema(self) -> dict:
@@ -95,81 +91,37 @@ class AvailabilityTool(AgentTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "unit_code": {"type": "string", "description": "Mã căn hộ cần kiểm tra (ví dụ: A1-05, B02, C12-A)"}
-                    }
-                }
-            }
+                        "unit_code": {"type": "string", "description": "Mã căn hộ cần kiểm tra"}
+                    },
+                    "required": ["unit_code"],
+                },
+            },
         }
 
     async def run(self, state: AgentState) -> ToolResult:
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
-        unit_code = kwargs.get("unit_code")
+        unit_code = kwargs.get("unit_code", "")
+        project = _project_name(state)
+
         try:
-            summary = ""
-            units = await self._api.get_unit_availability(
-                project=_project(state),
-                unit_code=unit_code,
-            )
-            available = [u for u in units if u.status == "available"]
-            unavailable = [u for u in units if u.status in ("reserved", "sold")]
- 
-            scarcity = _compute_scarcity(len(available))
-            state["scarcity_level"] = scarcity
+            units = await self._api.get_unit_availability(project=project, unit_code=unit_code)
+            if not units:
+                return ToolResult(success=False, data=[], summary=f"Không tìm thấy căn {unit_code}.")
 
-            if not available:
-                summary = "Không còn căn hộ trống theo tiêu chí yêu cầu."
-                state["sales_data"]["availability"] = {"available": 0, "units": []}
-                if unavailable and unit_code:
-                    ref = unavailable[0]
-                    cross_units = await self._api.search_units(
-                        project=_project(state),
-                        bedrooms=ref.bedrooms,
-                        min_price_vnd=ref.price_vnd * 0.85,
-                        max_price_vnd=ref.price_vnd * 1.15,
-                        status="available",
-                    )
-                    if cross_units:
-                        state["cross_sell_suggestions"] = [
-                            _unit_to_dict(u) for u in cross_units[:3]
-                        ]
-                        state["sales_data"]["cross_sell"] = state["cross_sell_suggestions"]
-                        summary += (
-                            f" Tuy nhiên, em tìm được {len(cross_units)} căn "
-                            f"tương đương đang còn trống."
-                        )
-                        log.info(
-                            "cross_sell_triggered",
-                            unit_code=unit_code,
-                            suggestions=len(cross_units),
-                        )
-            else:
-                unit_lines = [
-                    f"  • {u.unit_code}: {u.bedrooms}PN, {u.area_m2}m², {_fmt_vnd(u.price_vnd)}"
-                    for u in available[:5]
-                ]
-                
-                summary = f"Tìm thấy {len(available)} căn hộ đang còn trống:\n" + "\n".join(unit_lines)
-
-                if scarcity == ScarcityLevel.CRITICAL:
-                    summary += f"\n\nCHỈ CÒN {len(available)} CĂN — cần hành động ngay!"
-                elif scarcity == ScarcityLevel.MEDIUM:
-                    summary += f"\n\nCòn {len(available)} căn — số lượng có hạn."
- 
-                state["sales_data"]["availability"] = {
-                    "available": len(available),
-                    "scarcity_level": scarcity,
-                    "units": [_unit_to_dict(u) for u in available],
-                }
-
-            return ToolResult(success=True, data=state["sales_data"]["availability"], summary=summary)
-
+            unit = units[0]
+            unit_dict = _unit_to_dict(unit)
+            state["sales_data"]["unit_detail"] = unit_dict
+            
+            summary = f"Căn {unit_code}: {unit.status}. Tầng {unit.floor}, {unit.bedrooms}PN, giá {_fmt_vnd(unit.price_vnd)}."
+            return ToolResult(success=True, data=unit_dict, summary=summary)
         except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi API: {e.message}", error=str(e))
+            return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
 
 
 # ── Tool 2: Inventory ─────────────────────────────────────────────
 
 class InventoryTool(AgentTool):
+    """Lấy tổng tồn kho dự án."""
 
     def __init__(self, api: SalesAPIPort):
         self._api = api
@@ -180,7 +132,7 @@ class InventoryTool(AgentTool):
 
     @property
     def description(self) -> str:
-        return "Lấy tổng số căn hộ còn lại của dự án."
+        return "Lấy thống kê tổng tồn kho dự án (số căn còn trống, đã bán...)."
 
     @property
     def tool_schema(self) -> dict:
@@ -189,81 +141,31 @@ class InventoryTool(AgentTool):
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": {"type": "object", "properties": {}}
-            }
+                "parameters": {"type": "object", "properties": {}},
+            },
         }
 
     async def run(self, state: AgentState) -> ToolResult:
+        project = _project_name(state)
         try:
-            inv = await self._api.get_project_inventory(_project(state))
+            inv = await self._api.get_project_inventory(project=project)
             scarcity = _compute_scarcity(inv.available)
             state["scarcity_level"] = scarcity
-
             state["sales_data"]["inventory"] = {
                 "total": inv.total_units,
                 "available": inv.available,
-                "reserved": inv.reserved,
-                "sold": inv.sold,
+                "scarcity": scarcity,
             }
-            summary = (
-                f"Dự án {inv.project}: tổng {inv.total_units} căn, "
-                f"còn trống {inv.available}, đặt cọc {inv.reserved}, đã bán {inv.sold}."
-            )
-
-            if scarcity == ScarcityLevel.CRITICAL:
-                summary += f" Chỉ còn {inv.available} căn — rất khan hiếm!"
-            elif scarcity == ScarcityLevel.MEDIUM:
-                summary += f" Còn {inv.available} căn — số lượng có hạn."
- 
+            summary = f"Dự án {project} còn {inv.available}/{inv.total_units} căn trống."
             return ToolResult(success=True, data=state["sales_data"]["inventory"], summary=summary)
         except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi API: {e.message}", error=str(e))
+            return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
 
 
-# ── Tool 3: Payment Policy ────────────────────────────────────────
-
-class PaymentTool(AgentTool):
-
-    def __init__(self, api: SalesAPIPort):
-        self._api = api
-
-    @property
-    def name(self) -> str:
-        return "get_payment_policy"
-
-    @property
-    def description(self) -> str:
-        return "Lấy chính sách thanh toán, vay vốn, trả góp của dự án."
-
-    @property
-    def tool_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {"type": "object", "properties": {}}
-            }
-        }
-
-    async def run(self, state: AgentState) -> ToolResult:
-        try:
-            policies = await self._api.get_payment_policies(_project(state))
-            if not policies:
-                return ToolResult(success=False, data=None, summary="Không tìm thấy chính sách thanh toán.")
-
-            state["sales_data"]["payment_policies"] = [
-                {"name": p.name, "description": p.description} for p in policies
-            ]
-            summary = f"Tìm được {len(policies)} chính sách thanh toán: " + ", ".join(p.name for p in policies)
-            return ToolResult(success=True, data=state["sales_data"]["payment_policies"], summary=summary)
-        except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi API: {e.message}", error=str(e))
-
-
-# ── Tool 4: Unit Search ───────────────────────────────────────────
+# ── Tool 3: Unit Search ───────────────────────────────────────────
 
 class UnitSearchTool(AgentTool):
+    """Tìm căn hộ theo tiêu chí."""
 
     def __init__(self, api: SalesAPIPort):
         self._api = api
@@ -274,7 +176,7 @@ class UnitSearchTool(AgentTool):
 
     @property
     def description(self) -> str:
-        return "Tìm căn hộ theo tiêu chí: số phòng ngủ, diện tích, giá tối đa."
+        return "Tìm căn hộ theo số phòng ngủ, giá, diện tích, tầng..."
 
     @property
     def tool_schema(self) -> dict:
@@ -286,74 +188,53 @@ class UnitSearchTool(AgentTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "bedrooms": {"type": "integer", "description": "Số lượng phòng ngủ (vd: 1, 2, 3)"},
-                        "min_price_vnd": {"type": "number", "description": "Giá tối thiểu bằng VNĐ (vd: 3000000000 cho 3 tỷ)"},
-                        "max_price_vnd": {"type": "number", "description": "Giá tối đa bằng VNĐ (vd: 5000000000 cho 5 tỷ)"},
-                        "min_area_m2": {"type": "number", "description": "Diện tích tối thiểu (m2)"},
-                        "max_area_m2": {"type": "number", "description": "Diện tích tối đa (m2)"},
-                        "floor": {"type": "string", "description": "Tầng của căn hộ (vd: 8, 12A, 15)"},
-                        "direction": {"type": "string", "description": "Hướng của căn hộ (vd: Đông, Tây Nam)"}
-                    }
-                }
-            }
+                        "bedrooms": {"type": "integer"},
+                        "max_price": {"type": "number"},
+                        "floor": {"type": "string"},
+                    },
+                },
+            },
         }
 
     async def run(self, state: AgentState) -> ToolResult:
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
-        bedrooms = kwargs.get("bedrooms")
-        min_price = kwargs.get("min_price_vnd")
-        max_price = kwargs.get("max_price_vnd")
-        min_area = kwargs.get("min_area_m2")
-        max_area = kwargs.get("max_area_m2")
-        floor = kwargs.get("floor")
-        direction = kwargs.get("direction")
-
+        project = _project_name(state)
         try:
             units = await self._api.search_units(
-                project=_project(state),
-                bedrooms=bedrooms,
-                min_price_vnd=min_price,
-                max_price_vnd=max_price,
-                min_area_m2=min_area,
-                max_area_m2=max_area,
-                direction=direction,
-                floor=floor,
+                project=project,
+                bedrooms=kwargs.get("bedrooms"),
+                max_price_vnd=kwargs.get("max_price"),
+                floor=kwargs.get("floor"),
             )
             if not units:
-                return ToolResult(success=False, data=[], summary="Không tìm thấy căn hộ phù hợp.")
+                return ToolResult(success=False, data=[], summary="Không tìm thấy căn phù hợp.")
 
-            available_units = [u for u in units if u.status == "available"]
- 
-            # Tính scarcity từ kết quả search
-            scarcity = _compute_scarcity(len(available_units))
-            state["scarcity_level"] = scarcity
- 
-            state["sales_data"]["search_results"] = [_unit_to_dict(u) for u in units[:10]]
-            state["sales_data"]["search_scarcity"] = scarcity
- 
-            summary = f"Tìm được {len(units)} căn phù hợp ({len(available_units)} còn trống)."
-            if scarcity == ScarcityLevel.CRITICAL:
-                summary += f" Chỉ còn {len(available_units)} căn available!"
-            return ToolResult(success=True, data=state["sales_data"]["search_results"], summary=summary)
+            results = [_unit_to_dict(u) for u in units[:5]]
+            state["sales_data"]["search_results"] = results
+            summary = f"Tìm thấy {len(units)} căn phù hợp. Các căn nổi bật: " + ", ".join([str(u["unit_code"]) for u in results])
+            return ToolResult(success=True, data=results, summary=summary)
         except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi API: {e.message}", error=str(e))
+            return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
 
 
-# ── Tool 5: Booking Intent ────────────────────────────────────────
+# ── Tool 4: Consultation ──────────────────────────────────────────
 
-class BookingIntentTool(AgentTool):
-    """Trigger đặt cọc / giữ chỗ sang hệ thống backend."""
+class ConsultationTool(AgentTool):
+    """
+    Đăng ký tư vấn bán hàng.
+    Yêu cầu: name, phoneNumber, projectId, projectName.
+    """
 
     def __init__(self, api: SalesAPIPort):
         self._api = api
 
     @property
     def name(self) -> str:
-        return "booking_intent"
+        return "register_consultation"
 
     @property
     def description(self) -> str:
-        return "Gửi yêu cầu đặt cọc/giữ chỗ khi khách hàng đã quyết định mua."
+        return "Đăng ký yêu cầu tư vấn. Sale sẽ liên hệ lại với khách hàng."
 
     @property
     def tool_schema(self) -> dict:
@@ -365,247 +246,81 @@ class BookingIntentTool(AgentTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "unit_code": {"type": "string", "description": "Mã căn hộ muốn đặt cọc"}
-                    }
-                }
-            }
+                        "customer_name": {"type": "string", "description": "Họ và tên của khách hàng (Bắt buộc trích xuất từ hội thoại)"},
+                        "customer_phone": {"type": "string", "description": "Số điện thoại của khách hàng (Bắt buộc trích xuất từ hội thoại)"},
+                        "email": {"type": "string", "description": "Email khách hàng (nếu có)"},
+                        "address": {"type": "string", "description": "Địa chỉ khách hàng (nếu có)"},
+                    },
+                    "required": ["customer_name", "customer_phone"]
+                },
+            },
         }
 
     async def run(self, state: AgentState) -> ToolResult:
-        # Lấy thông tin từ state
-        sales_data = state.get("sales_data", {})
-        customer_name = state.get("customer_name") or sales_data.get("customer_name", "")
-        customer_phone = state.get("customer_phone") or sales_data.get("customer_phone", "")
+        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
         
-        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
-        unit_code = kwargs.get("unit_code") or sales_data.get("selected_unit_code", "")
+        # Lấy thông tin ưu tiên từ LLM trích xuất (kwargs), fallback về state
+        name = kwargs.get("customer_name") or state.get("customer_name")
+        phone = kwargs.get("customer_phone") or state.get("customer_phone")
+        email = kwargs.get("email")
+        address = kwargs.get("address")
+
+        p_id = _project_id(state)
+        p_name = _project_name(state)
+
+        # Nếu LLM extract được name/phone mới, cập nhật ngược lại vào state
+        if name and not state.get("customer_name"):
+            state["customer_name"] = name
+            state["sales_data"]["customer_name"] = name
+        if phone and not state.get("customer_phone"):
+            state["customer_phone"] = phone
+            state["sales_data"]["customer_phone"] = phone
 
         missing = []
-        if not customer_name:
-            missing.append("họ và tên")
-        if not customer_phone:
-            missing.append("số điện thoại")
-        if not unit_code:
-            missing.append("mã căn hộ muốn đặt")
- 
+        if not name: missing.append("họ và tên")
+        if not phone: missing.append("số điện thoại")
+        if not p_id or not p_name or p_name == "unknown":
+            missing.append("dự án quan tâm")
+
         if missing:
-            missing_str = ", ".join(missing)
-            state["sales_data"]["booking_pending"] = True
             state["sales_data"]["booking_missing_fields"] = missing
-            return ToolResult(
-                success=False,
-                data={"missing": missing},
-                summary=(
-                    f"Cần thu thập thêm: {missing_str} trước khi đặt cọc. "
-                    f"Đây là multi-turn — hỏi từng thông tin một."
-                ),
-            )
-
-        if not state.get("booking_confirmation"):
-            state["sales_data"]["booking_pending"] = True
-            state["sales_data"]["booking_confirm_required"] = {
-                "unit_code":       unit_code,
-                "customer_name":   customer_name,
-                "customer_phone":  customer_phone,
-            }
-            return ToolResult(
-                success=False,
-                data={"confirm_required": True},
-                summary=(
-                    f"Cần xác nhận booking: căn {unit_code}, "
-                    f"khách {customer_name} — {customer_phone}. "
-                    f"Đợi khách xác nhận trước khi gọi API."
-                ),
-            )
+            summary = f"Cần cung cấp thêm: {', '.join(missing)} để đăng ký tư vấn."
+            return ToolResult(success=False, data={"missing": missing}, summary=summary)
+        else:
+            # Xóa cờ missing nếu đã đủ thông tin
+            if "booking_missing_fields" in state["sales_data"]:
+                del state["sales_data"]["booking_missing_fields"]
 
         try:
-            result = await self._api.trigger_booking_intent(
-                project=_project(state),
-                unit_code=unit_code,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
+            result = await self._api.register_consultation(
+                name=name,
+                phoneNumber=phone,
+                projectId=p_id,
+                projectName=p_name,
+                email=email,
+                address=address
             )
-            state["sales_data"]["booking"] = {
-                "booking_id":   result.booking_id,
-                "success":      result.success,
-                "message":      result.message,
-                "unit_code":    unit_code,
-                "customer_name": customer_name,
-            }
-            summary = f"Đặt cọc {'thành công' if result.success else 'thất bại'}: {result.message}"
-            log.info(
-                "booking_completed",
-                session=state.get("session_id"),
-                unit_code=unit_code,
-                success=result.success,
-            )
-            return ToolResult(success=result.success, data=result, summary=summary)
+            state["sales_data"]["consultation"] = {"id": result.consultation_id, "success": True}
+            return ToolResult(success=True, data=result, summary=result.message)
         except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi đặt cọc: {e.message}", error=str(e))
+            return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
 
-# ── Tool 6: Appointment ───────────────────────────────────────────
- 
-class AppointmentTool(AgentTool):
-    """
-    [NEW] Đặt lịch hẹn xem nhà mẫu / sa bàn.
- 
-    Đây là tool phục vụ mục tiêu Giai đoạn 1 (AWARENESS):
-      "Không bán nhà qua điện thoại, chỉ bán cuộc hẹn."
- 
-    Flow:
-      1. Lấy khung giờ còn trống (get_available_slots)
-      2. Slot filling: ngày/giờ mong muốn + số người đi cùng
-      3. Xác nhận và book (book_appointment)
-      4. Hệ thống tự gửi SMS/Zalo xác nhận cho khách
- 
-    Khác với BookingIntentTool (đặt cọc căn hộ thực) về nghiệp vụ.
-    """
- 
-    def __init__(self, api: SalesAPIPort):
-        self._api = api
- 
-    @property
-    def name(self) -> str:
-        return "book_appointment"
- 
-    @property
-    def description(self) -> str:
-        return (
-            "Đặt lịch hẹn cho khách đến xem nhà mẫu hoặc sa bàn tại Sale Gallery. "
-            "Dùng khi khách muốn 'đi xem', 'đặt lịch', 'book hẹn', 'cuối tuần đến được không'."
-        )
 
-    @property
-    def tool_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "preferred_date": {"type": "string", "description": "Ngày mong muốn ISO format: 2026-05-10"},
-                        "num_guests": {"type": "integer", "description": "Số người đi cùng (default: 1)"},
-                        "note": {"type": "string", "description": "Ghi chú thêm của khách"},
-                    }
-                }
-            }
-        }
- 
-    async def run(self, state: AgentState) -> ToolResult:
-        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
-        customer_name  = state.get("customer_name")  or state.get("sales_data", {}).get("customer_name", "")
-        customer_phone = state.get("customer_phone") or state.get("sales_data", {}).get("customer_phone", "")
-        preferred_date = kwargs.get("preferred_date")   # "2026-05-10" hoặc None
-        num_guests     = int(kwargs.get("num_guests", 1))
-        note           = kwargs.get("note", "")
- 
-        # ── Slot filling: lấy danh sách khung giờ trống ──────────
-        try:
-            slots = await self._api.get_available_slots(
-                project=_project(state),
-                preferred_date=preferred_date,
-            )
-        except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi lấy lịch: {e.message}", error=str(e))
- 
-        if not slots:
-            return ToolResult(
-                success=False,
-                data=None,
-                summary=(
-                    "Hiện tại không còn khung giờ trống trong thời gian này. "
-                    "Vui lòng thử ngày khác hoặc để lại SĐT để chuyên viên liên hệ."
-                ),
-            )
- 
-        # ── Thiếu thông tin khách → slot filling ─────────────────
-        missing = []
-        if not customer_name:
-            missing.append("họ và tên")
-        if not customer_phone:
-            missing.append("số điện thoại")
- 
-        if missing:
-            # Cung cấp khung giờ gợi ý để khách chọn
-            slot_options = [
-                f"• {s.date} lúc {s.time_start}–{s.time_end} tại {s.location} ({s.available_spots} chỗ trống)"
-                for s in slots[:3]
-            ]
-            state["sales_data"]["available_slots"] = [
-                {
-                    "slot_id":         s.slot_id,
-                    "date":            s.date,
-                    "time_start":      s.time_start,
-                    "time_end":        s.time_end,
-                    "location":        s.location,
-                    "available_spots": s.available_spots,
-                }
-                for s in slots[:5]
-            ]
-            missing_str = " và ".join(missing)
-            summary = (
-                f"Có {len(slots)} khung giờ trống. "
-                f"Cần thu thập thêm {missing_str} để hoàn tất đặt lịch.\n"
-                + "\n".join(slot_options)
-            )
-            return ToolResult(success=False, data={"missing": missing, "slots": slots[:5]}, summary=summary)
- 
-        # ── Đặt lịch với slot đầu tiên phù hợp ──────────────────
-        chosen_slot = slots[0]
-        slot_id = kwargs.get("slot_id") or chosen_slot.slot_id
- 
-        try:
-            result = await self._api.book_appointment(
-                project=_project(state),
-                slot_id=slot_id,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                num_guests=num_guests,
-                note=note,
-            )
-            state["appointment_booked"] = result.success
-            state["sales_data"]["appointment"] = {
-                "appointment_id":    result.appointment_id,
-                "confirmation_code": result.confirmation_code,
-                "success":           result.success,
-                "message":           result.message,
-                "scheduled_date":    result.scheduled_date,
-                "scheduled_time":    result.scheduled_time,
-                "location":          result.location,
-            }
-            summary = (
-                f"Đặt lịch hẹn {'thành công' if result.success else 'thất bại'}. "
-                f"Mã xác nhận: {result.confirmation_code}. "
-                f"Thời gian: {result.scheduled_date} lúc {result.scheduled_time} "
-                f"tại {result.location}."
-            )
-            log.info(
-                "appointment_booked",
-                session=state.get("session_id"),
-                appointment_id=result.appointment_id,
-                success=result.success,
-            )
-            return ToolResult(success=result.success, data=result, summary=summary)
-        except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi đặt lịch: {e.message}", error=str(e))
- 
-# ── Tool 7: Project List ──────────────────────────────────────────
- 
+# ── Tool 5: Project List ──────────────────────────────────────────
+
 class ProjectListTool(AgentTool):
-    """Lấy danh sách các dự án bất động sản hiện có."""
- 
+    """Lấy danh sách các dự án."""
+
     def __init__(self, api: SalesAPIPort):
         self._api = api
- 
+
     @property
     def name(self) -> str:
         return "list_projects"
- 
+
     @property
     def description(self) -> str:
-        return "Lấy danh sách tất cả các dự án bất động sản hiện có."
+        return "Lấy danh sách các dự án bất động sản hiện có."
 
     @property
     def tool_schema(self) -> dict:
@@ -614,26 +329,18 @@ class ProjectListTool(AgentTool):
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": {"type": "object", "properties": {}}
-            }
+                "parameters": {"type": "object", "properties": {}},
+            },
         }
- 
+
     async def run(self, state: AgentState) -> ToolResult:
         try:
             projects = await self._api.list_all_projects()
             if not projects:
-                return ToolResult(success=False, data=[], summary="Hiện tại chưa có dự án nào trong hệ thống.")
-            
-            # [FIX] Đảm bảo toàn bộ project_name là string để tránh lỗi join()
-            projects = [str(p) for p in projects if p]
-            
+                return ToolResult(success=False, data=[], summary="Chưa có dự án nào.")
+
             state["sales_data"]["project_list"] = projects
-            summary = f"Hiện tại có {len(projects)} dự án: " + ", ".join(projects)
+            summary = "Hiện có các dự án: " + ", ".join([str(p["name"]) for p in projects])
             return ToolResult(success=True, data=projects, summary=summary)
         except SalesAPIError as e:
-            return ToolResult(success=False, data=None, summary=f"Lỗi lấy danh sách dự án: {e.message}", error=str(e))
- 
-# ── Helpers ────────────────────────────────────────────────────────
-
-# Helper regex functions have been removed. We now rely on LLM Native Tool Calling
-# to extract parameters into state["tool_kwargs"].
+            return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")

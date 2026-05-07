@@ -24,9 +24,8 @@ class Intent(str, Enum):
     Tránh dùng LLM gọi tool sai.
     """
     CUSTOMER_SUPPORT = "customer_support"   # hỏi về dự án, pháp lý, tiện ích
-    SALES_INQUIRY    = "sales_inquiry"      # hỏi giá, tồn kho, đặt cọc
-    BOOKING_INTENT   = "booking_intent"     # muốn đặt cọc/giữ chỗ
-    APPOINTMENT_INTENT  = "appointment_intent"  # muốn đặt lịch xem nhà mẫu/sa bàn
+    SALES_INQUIRY    = "sales_inquiry"      # hỏi giá, tồn kho
+    CONSULTATION_INTENT = "consultation_intent" # muốn đăng ký tư vấn/liên hệ
     COMPARISON_INTENT   = "comparison_intent"   # đang so sánh với dự án đối thủ
     CHITCHAT         = "chitchat"           # chào hỏi, tán gẫu, câu hỏi chung
     UNKNOWN          = "unknown"
@@ -144,7 +143,6 @@ class AgentState(TypedDict):
     messages: list
     session_id: str
     project_name: Optional[str]
-    min_role_level: Optional[int]
     intent: Any                  # Intent enum
     raw_query: str
     was_injected: bool
@@ -180,6 +178,7 @@ class AgentState(TypedDict):
     cross_sell_suggestions: list        # list[dict] — căn đề xuất
     booking_confirmation: bool          # Khách đã confirm booking chưa
     price_disclosed: bool               # Giá đã được cho phép tiết lộ chưa
+    suggested_questions: list           # 3 câu hỏi gợi ý tiếp theo (generate bởi Synthesizer)
 
 
 # ── Factory ────────────────────────────────────────────────────────
@@ -188,6 +187,7 @@ def make_initial_state(
     session_id: str,
     raw_query: str,
     project_name: str | None = None,
+    project_id: str | None = None,
     customer_name: str | None = None,
     customer_phone: str | None = None,
     customer_stage: str = CustomerStage.AWARENESS,
@@ -200,7 +200,6 @@ def make_initial_state(
         messages=[],
         session_id=session_id,
         project_name=project_name,
-        min_role_level=min_role_level,
         intent=Intent.UNKNOWN,
         raw_query=raw_query,
         was_injected=False,
@@ -230,4 +229,5 @@ def make_initial_state(
         cross_sell_suggestions=[],
         booking_confirmation=False,
         price_disclosed=False,
+        suggested_questions=[],
     )

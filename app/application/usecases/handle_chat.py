@@ -69,6 +69,8 @@ class ChatResponse:
     was_injected: bool = False
     project_name: Optional[str] = None    # Dự án được detect thực tế
     response_time_ms: int = 0
+    suggested_questions: list[str] = field(default_factory=list)  # 3 câu hỏi gợi ý tiếp theo
+    sales_data: dict = field(default_factory=dict)  # Raw sales data cho UI
 
 
 # ── Use Case ──────────────────────────────────────────────────────
@@ -79,11 +81,10 @@ class HandleChatUseCase:
     Graph được inject qua __init__ (DIP).
     """
 
-    def __init__(self, agent_graph, history_store=None) -> None:
-        # agent_graph là compiled LangGraph (kiểu CompiledStateGraph)
-        # Không type-hint cụ thể để tránh circular import
+    def __init__(self, agent_graph, history_store=None, activity_logger=None) -> None:
         self._graph = agent_graph
         self._history = history_store
+        self._activity_log = activity_logger  # UserActivityLogger (optional)
 
     async def execute(self, req: ChatRequest) -> ChatResponse:
         session_id = req.session_id or _new_session_id()
@@ -107,7 +108,7 @@ class HandleChatUseCase:
         # Load history và context nếu có
         if self._history:
             # 1. Load chat messages
-            history = await self._history.get_history(session_id)
+            history = await self._history.get_history(session_id, limit=20)
             state["messages"] = history
             
             # 2. Load persistent context (project_name)
@@ -138,8 +139,8 @@ class HandleChatUseCase:
             return ChatResponse(
                 session_id=session_id,
                 answer=(
-                    "Xin lỗi, hệ thống đang gặp sự cố. "
-                    "Vui lòng thử lại hoặc liên hệ Sales để được hỗ trợ."
+                    "Dạ, hiện tại hệ thống đang xử lý quá nhiều yêu cầu nên phản hồi chậm. "
+                    "Anh/chị vui lòng để lại số điện thoại để chuyên viên tư vấn gọi lại hỗ trợ mình ngay nhé."
                 ),
                 intent="unknown",
                 fallback=True,
@@ -161,6 +162,8 @@ class HandleChatUseCase:
             was_injected=final_state.get("was_injected", False),
             project_name=final_state.get("project_name"),
             response_time_ms=_ms(t0),
+            suggested_questions=final_state.get("suggested_questions", []),
+            sales_data=final_state.get("sales_data", {}),
         )
 
         # Lưu history (user msg & assistant answer)
@@ -174,6 +177,13 @@ class HandleChatUseCase:
             # Lưu lại project_name thực tế sau khi agent xử lý (có thể agent đã detect được project mới)
             if response.project_name:
                 await self._history.set_context(session_id, {"project_name": response.project_name})
+
+        # Ghi user activity audit log
+        if self._activity_log:
+            try:
+                await self._activity_log.log_chat_event(req, response)
+            except Exception as log_err:
+                log.warning("activity_log_failed", error=str(log_err))
 
         log.info(
             "chat_done",

@@ -67,7 +67,7 @@ def build_agent_graph(
         return route_by_intent(state)
 
     async def wrapped_classifier(state: AgentState) -> AgentState:
-        return await classify_intent(state, llm)
+        return await classify_intent(state, llm, tool_registry)
 
     # Build graph
     builder = StateGraph(AgentState)
