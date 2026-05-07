@@ -9,7 +9,7 @@ RAG-style v5 (cải tiến):
   - PII trong sales_data được scrub trước khi gửi LLM
   - Inject TODAY_DATE để validate ngày / đợt bán
   - Cultural guidance cho khách hỏi phong thủy / mê tín
-  - Generate 3 câu hỏi gợi ý (suggested_questions) kèm câu trả lời
+  - Generate 2 câu hỏi gợi ý (suggested_questions) kèm câu trả lời
   - Trả lời ngắn gọn, tối đa 150 từ cho câu thường
   - History window tăng lên 3000 chars = ~8 turns
 """
@@ -76,9 +76,9 @@ TRÁNH RẬP KHUÔN:
 Trả về JSON với 2 trường sau (không có markdown):
 {{
   "answer": "<câu trả lời chính>",
-  "suggested_questions": ["<câu hỏi gợi ý 1>", "<câu hỏi gợi ý 2>", "<câu hỏi gợi ý 3>"]
+  "suggested_questions": ["<câu hỏi gợi ý 1>", "<câu hỏi gợi ý 2>"]
 }}
-- suggested_questions: 3 câu hỏi ngắn (TUYỆT ĐỐI CHỈ DÙNG TEXT THUẦN, KHÔNG chứa ký tự đặc biệt, KHÔNG dùng markdown như *, -, #). QUAN TRỌNG: Hãy ưu tiên tạo các câu hỏi mang tính "Call to Action" để hướng khách đến việc gặp mặt, chốt sale (VD: "Làm sao để đăng ký nhận báo giá?", "Tôi muốn để lại thông tin liên hệ cho Sale").
+- suggested_questions: 2 câu hỏi ngắn (TUYỆT ĐỐI CHỈ DÙNG TEXT THUẦN, KHÔNG chứa ký tự đặc biệt, KHÔNG dùng markdown như *, -, #). QUAN TRỌNG: Hãy ưu tiên tạo các câu hỏi mang tính "Call to Action" để hướng khách đến việc gặp mặt, chốt sale (VD: "Làm sao để đăng ký nhận báo giá?", "Tôi muốn để lại thông tin liên hệ cho Sale").
 """
 
 SYNTHESIS_TEMPLATE = """LỊCH SỬ HỘI THOẠI:
@@ -123,7 +123,7 @@ def _parse_llm_output(content: str) -> tuple[str, list[str]]:
         answer = data.get("answer", "").strip()
         suggested = data.get("suggested_questions", [])
         if isinstance(suggested, list):
-            suggested = [str(q).strip() for q in suggested[:3] if q]
+            suggested = [str(q).strip() for q in suggested[:2] if q]
         else:
             suggested = []
         if answer:

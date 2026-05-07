@@ -7,7 +7,7 @@ Tài liệu này cung cấp các thông số kỹ thuật và API chi tiết đ�
 ## 1. Thông Tin Chung
 Hệ thống Chatbot Backend hiện tại đang chạy hoàn toàn bằng API (không có Web UI đính kèm). Frontend (Portal UI) sẽ gọi trực tiếp hoặc thông qua API Gateway đến các endpoint này.
 
-- **Base URL (Gateway)**: `https://llmerp.hextech.vn/prim-diamond` *(Vui lòng confirm lại Route từ Gateway proxy)*
+- **Base URL (Gateway)**: `https://llmerp.hextech.vn/primer-diamond` *(Vui lòng confirm lại Route từ Gateway proxy)*
 - **Protocol**: HTTP/HTTPS
 - **Content-Type mặc định**: `application/json`
 
@@ -21,7 +21,7 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 |---|---|---|---|
 | `Authorization` | Token xác thực của người dùng đăng nhập (Gateway sẽ xử lý). | Có | `Bearer eyJhbGci...` |
 | `X-User-ID` | ID của người dùng đang đăng nhập | Không (nhưng khuyến nghị) | `user_123` |
-| `X-Tenant-ID` | ID của đối tác/công ty (để cách ly dữ liệu) | Không | `prim-diamond` |
+| `X-Tenant-ID` | ID của đối tác/công ty (để cách ly dữ liệu) | Không | `primer-diamond` |
 | `X-Role-Level` | Cấp bậc phân quyền (để lọc tài liệu hiển thị). 1-E, 2-C, 3-M, 4-D. | Có (Mặc định `1`) | `2` |
 | `X-Session-ID` | Định danh phiên chat. Rất quan trọng để Bot ghi nhớ ngữ cảnh! | CÓ (Khi chat liên tiếp) | `sess_xyz123` |
 
@@ -40,7 +40,7 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 **Ví dụ cURL gọi API:**
 ```bash
-curl -X POST "https://llmerp.hextech.vn/prim-diamond/api/v1/chat" \
+curl -X POST "https://llmerp.hextech.vn/primer-diamond/api/v1/chat" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
   -H "X-Role-Level: 1" \
