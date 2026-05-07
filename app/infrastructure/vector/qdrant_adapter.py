@@ -103,6 +103,11 @@ class QdrantAdapter(VectorPort):
                 must.append(
                     FieldCondition(key="doc_group", match=MatchValue(value=filter.doc_group))
                 )
+            if filter.min_role_level is not None:
+                from qdrant_client.models import Range
+                must.append(
+                    FieldCondition(key="min_role_level", range=Range(lte=filter.min_role_level))
+                )
 
             results = await client.search(
                 collection_name=self._collection,
@@ -150,6 +155,11 @@ class QdrantAdapter(VectorPort):
             if filter.doc_group:
                 must.append(
                     FieldCondition(key="doc_group", match=MatchValue(value=filter.doc_group))
+                )
+            if filter.min_role_level is not None:
+                from qdrant_client.models import Range
+                must.append(
+                    FieldCondition(key="min_role_level", range=Range(lte=filter.min_role_level))
                 )
 
             batch, next_offset = await client.scroll(

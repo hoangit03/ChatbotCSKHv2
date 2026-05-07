@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.application.usecases.handle_chat import ChatRequest, ChatResponse, HandleChatUseCase
 from app.shared.logging.logger import get_logger
+from fastapi import Header
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat — CB-02"])
@@ -88,15 +89,28 @@ Agent tự động phân loại intent và chọn luồng xử lý:
 Khi không đủ dữ liệu, `fallback=true` và `fallback_reason` giải thích lý do.
     """,
 )
-async def chat(body: ChatIn, request: Request) -> ChatOut:
+async def chat(
+    body: ChatIn, 
+    request: Request,
+    x_user_id: Optional[str] = Header(None),
+    x_tenant_id: Optional[str] = Header(None),
+    x_role_level: Optional[str] = Header("1"),
+    x_session_id: Optional[str] = Header(None)
+) -> ChatOut:
     uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    
+    # Ưu tiên session_id từ Header (do Gateway proxy xuống)
+    final_session_id = x_session_id or body.session_id
 
     chat_req = ChatRequest(
         message=body.message,
-        session_id=body.session_id,
+        session_id=final_session_id,
         project_name=body.project_name,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
+        user_id=x_user_id,
+        tenant_id=x_tenant_id,
+        role_level=x_role_level
     )
 
     try:

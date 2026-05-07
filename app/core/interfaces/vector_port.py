@@ -39,6 +39,7 @@ class SearchFilter:
     project_name: Optional[str] = None
     doc_group: Optional[str] = None
     status: str = "active"     # "active" | "superseded"
+    min_role_level: Optional[int] = None
 
 
 class VectorPort(ABC):

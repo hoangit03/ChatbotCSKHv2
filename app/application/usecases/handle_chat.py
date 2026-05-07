@@ -15,9 +15,11 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+import asyncio
 
 from app.agent.state.agent_state import AgentState, SourceRef, ToolCall, make_initial_state
 from app.shared.logging.logger import get_logger
+from app.infrastructure.cache.pg_history import save_chat_message_async
 
 log = get_logger(__name__)
 
@@ -32,6 +34,9 @@ class ChatRequest:
     # Thông tin khách hàng (dùng cho booking intent)
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    role_level: Optional[str] = None
 
 
 @dataclass
@@ -96,6 +101,7 @@ class HandleChatUseCase:
             session_id=session_id,
             raw_query=req.message,
             project_name=req.project_name,
+            min_role_level=int(req.role_level) if req.role_level else None,
         )
 
         # Load history và context nếu có
@@ -161,6 +167,10 @@ class HandleChatUseCase:
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
+            # Đồng bộ sang Postgres
+            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
+            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            
             # Lưu lại project_name thực tế sau khi agent xử lý (có thể agent đã detect được project mới)
             if response.project_name:
                 await self._history.set_context(session_id, {"project_name": response.project_name})

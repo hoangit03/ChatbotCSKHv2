@@ -144,6 +144,7 @@ class AgentState(TypedDict):
     messages: list
     session_id: str
     project_name: Optional[str]
+    min_role_level: Optional[int]
     intent: Any                  # Intent enum
     raw_query: str
     was_injected: bool
@@ -192,12 +193,14 @@ def make_initial_state(
     customer_stage: str = CustomerStage.AWARENESS,
     usps_used: list | None = None,
     appointment_booked: bool = False,
+    min_role_level: int | None = None,
 ) -> AgentState:
     return AgentState(
         # Core
         messages=[],
         session_id=session_id,
         project_name=project_name,
+        min_role_level=min_role_level,
         intent=Intent.UNKNOWN,
         raw_query=raw_query,
         was_injected=False,

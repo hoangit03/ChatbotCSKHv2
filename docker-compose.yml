@@ -1,12 +1,4 @@
-# ══════════════════════════════════════════════════════════════
-# ChatbotCSKHv2 — App Layer ONLY (Tầng 3)
-# Sử dụng Core AI (Tầng 1) + Shared Infra (Tầng 2)
-# qua global_proxy_network — KHÔNG chạy Qdrant/Postgres/Redis riêng
-# ══════════════════════════════════════════════════════════════
-
 services:
-
-  # ── Application API ──────────────────────────────────────────
   api:
     build:
       context: .
@@ -15,16 +7,20 @@ services:
     container_name: cskh_api
     env_file: .env
     environment:
-      - GUNICORN_WORKERS=2
+    - GUNICORN_WORKERS=2
     ports:
-      - "8006:8000"
+    - 8006:8000
     volumes:
-      - doc_storage:/app/storage/documents
+    - doc_storage:/app/storage/documents
     restart: unless-stopped
     networks:
-      - global_proxy_network
+    - global_proxy_network
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/health
       interval: 30s
       timeout: 15s
       retries: 5
@@ -35,30 +31,15 @@ services:
           memory: 2G
         reservations:
           memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '5'
 
-  # ── Streamlit Frontend ───────────────────────────────────────
-  frontend:
-    image: chatbotcskhv2-api
-    container_name: cskh_frontend
-    env_file: .env
-    environment:
-      - API_BASE_URL=http://api:8000
-    ports:
-      - "8005:8501"
-    command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - global_proxy_network
-
-# ── Volumes ───────────────────────────────────────────────────
 volumes:
   doc_storage:
     driver: local
-
-# ── Dùng chung global_proxy_network với Core Infra ─────────────
 networks:
   global_proxy_network:
     external: true
