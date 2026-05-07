@@ -9,6 +9,8 @@ services:
     environment:
     - GUNICORN_WORKERS=2
     - QDRANT_URL=http://core_qdrant:6333
+    - REDIS_URL=redis://:${REDIS_PASSWORD}@core_redis:6379/0
+    - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@core_postgres:5432/ragdb
     ports:
     - 8006:8000
     volumes:
