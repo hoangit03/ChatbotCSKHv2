@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware.auth import APIKeyMiddleware, APIKeyStore
-from app.api.v1.endpoints import chat, document, health, qa_import, project
+from app.api.v1.endpoints import chat, health, project
 from app.core.config.settings import get_settings
 from app.shared.errors.exceptions import AppError
 from app.shared.logging.logger import get_logger, setup_logging
@@ -73,19 +73,6 @@ async def lifespan(app: FastAPI):
     # ── 4. Storage ────────────────────────────────────────────────
     from app.infrastructure.storage.local_storage import LocalStorageAdapter
     storage = LocalStorageAdapter(base_path=cfg.storage_path)
-
-    # ── 5. Parser registry (OCP: đăng ký parser, không sửa code cũ) ──
-    from app.core.interfaces.parser_port import ParserRegistry
-    from app.infrastructure.parser.extractors.pdf_parser import PDFParser
-    from app.infrastructure.parser.extractors.docx_parser import DocxParser
-    from app.infrastructure.parser.extractors.excel_parser import ExcelParser
-    from app.infrastructure.parser.extractors.image_parser import ImageParser
-
-    parsers = ParserRegistry()
-    parsers.register(PDFParser())
-    parsers.register(DocxParser())
-    parsers.register(ExcelParser())
-    parsers.register(ImageParser())
 
     # ── 6. Sales API ──────────────────────────────────────────────
     from app.infrastructure.sql_api.sales_api_adapter import SalesAPIAdapter
@@ -157,9 +144,7 @@ async def lifespan(app: FastAPI):
     )
 
     # ── 10. Use Cases ─────────────────────────────────────────────
-    from app.application.usecases.upload_document import UploadDocumentUseCase
     from app.application.usecases.handle_chat import HandleChatUseCase
-    from app.application.usecases.import_qa import ImportQAUseCase
     from app.infrastructure.cache.redis_history import RedisHistoryStore
     from app.shared.logging.user_activity_log import UserActivityLogger
 
@@ -167,20 +152,13 @@ async def lifespan(app: FastAPI):
     activity_logger  = UserActivityLogger(log_dir="./storage/logs")
     log.info("user_activity_logger_ready", log_dir="./storage/logs")
 
-    app.state.upload_doc_uc  = UploadDocumentUseCase(
-        cfg=cfg,
-        parser_registry=parsers,
-        embedder=embedder,
-        vector_db=vector_db,
-        storage=storage,
-    )
+
     app.state.handle_chat_uc = HandleChatUseCase(
         agent_graph=agent_graph,
         history_store=history_store,
         activity_logger=activity_logger,
     )
-    import_qa_uc = ImportQAUseCase(qa_store=qa_store)
-    app.state.import_qa_uc  = import_qa_uc
+
 
     # ── 11. API Key Store ─────────────────────────────────────────
 
@@ -272,8 +250,6 @@ async def auth_middleware(request: Request, call_next):
 API_V1 = "/api/v1"
 app.include_router(health.router)                               # /health
 app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat
-app.include_router(document.router,   prefix=API_V1)           # /api/v1/documents
-app.include_router(qa_import.router,  prefix=API_V1)           # /api/v1/qa
 app.include_router(project.router,    prefix=API_V1)           # /api/v1/projects
 
 
