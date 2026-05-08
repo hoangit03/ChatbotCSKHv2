@@ -140,12 +140,22 @@ class SynthesizerNode:
         self._llm = llm
 
     async def __call__(self, state: AgentState) -> AgentState:
-        # Đã có final_answer từ trước (vd: booking slot filling)
         if state.get("final_answer"):
             log.info("synthesizer_skip_already_answered", session=state.get("session_id"))
-            # Vẫn generate suggested_questions nếu chưa có
             if not state.get("suggested_questions"):
                 state["suggested_questions"] = []
+                
+            if state.get("stream_queue"):
+                import asyncio
+                queue = state["stream_queue"]
+                
+                async def _push_to_queue():
+                    await queue.put({"type": "token", "content": state["final_answer"]})
+                    await queue.put({"type": "suggestions", "content": state["suggested_questions"]})
+                    await queue.put({"type": "done"})
+                    
+                asyncio.create_task(_push_to_queue())
+                
             return state
 
         context = self._build_context(state)
