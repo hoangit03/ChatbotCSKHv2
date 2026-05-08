@@ -31,6 +31,7 @@ async def save_chat_message_async(session_id: str, role: str, content: str, user
                     """
                     INSERT INTO chat_sessions (id, user_id, tenant_id, title)
                     VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (id) DO NOTHING
                     """,
                     session_uuid, uid, tenant_id, title
                 )

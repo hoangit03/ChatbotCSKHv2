@@ -19,11 +19,13 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 | Header Key | Ý Nghĩa | Bắt buộc | Ví dụ |
 |---|---|---|---|
-| `Authorization` | Token xác thực của người dùng đăng nhập (Gateway sẽ xử lý). | Có | `Bearer eyJhbGci...` |
-| `X-User-ID` | ID của người dùng đang đăng nhập | Không (nhưng khuyến nghị) | `user_123` |
-| `X-Tenant-ID` | ID của đối tác/công ty (để cách ly dữ liệu) | Không | `primer-diamond` |
-| `X-Role-Level` | Cấp bậc phân quyền (để lọc tài liệu hiển thị). 1-E, 2-C, 3-M, 4-D. | Có (Mặc định `1`) | `2` |
-| `X-Session-ID` | Định danh phiên chat. Rất quan trọng để Bot ghi nhớ ngữ cảnh! | CÓ (Khi chat liên tiếp) | `sess_xyz123` |
+| `Authorization` | JWT Token của hệ thống đối tác (Gateway sẽ tự động giải mã và cấp quyền SSO). | Có | `Bearer eyJhbGci...` |
+| `X-Session-ID` | Định danh phiên chat. Rất quan trọng để Bot ghi nhớ ngữ cảnh! | Có (Trừ lần đầu) | `sess_xyz123` |
+
+> **💡 CƠ CHẾ CẤP QUYỀN TỰ ĐỘNG (SSO AUTO-PROVISIONING):**
+> API Gateway được cấu hình để tự động nhận dạng JWT của đối tác (BYOT - Bring Your Own Token). Frontend KHÔNG cần truyền các header như `X-User-ID`, `X-Role-Level` vì Gateway sẽ tự động trích xuất `email` từ Payload của Token. 
+> - Nếu email chứa cụm từ `admin` (VD: `sysadmin@ctg.com`), user tự động nhận quyền Quản trị (Level D).
+> - Ngược lại, user nhận quyền Nhân viên/Khách (Level E).
 
 > **⚠️ LƯU Ý CHO FE (SESSION ID):**
 > Lần đầu người dùng nhắn tin, FE không cần truyền `X-Session-ID`. Backend sẽ trả về một `session_id` mới trong Response. Các câu hỏi tiếp theo của cùng cuộc trò chuyện, FE **BẮT BUỘC** phải đính kèm `session_id` này vào Header `X-Session-ID` hoặc trong Body để bot nhớ được lịch sử chat.
@@ -32,71 +34,49 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 ## 3. Danh Sách API Endpoints
 
-### 3.1. API Hỏi Đáp Chatbot (`POST /api/v1/chat`)
+### 3.1. API Hỏi Đáp Chatbot - Dạng Stream (`POST /.../chat/stream`)
 
-Đây là endpoint cốt lõi dùng để giao tiếp với AI Agent. Agent tự động nhận diện ý định khách hàng (Hỏi dự án, Xin giá, Đặt cọc) và điều phối công việc.
+Đây là endpoint cốt lõi dùng để giao tiếp với AI Agent. Agent tự động nhận diện ý định và phản hồi theo **thời gian thực (Server-Sent Events - SSE)**.
 
-**Endpoint**: `POST /api/v1/chat`
+**Endpoint (qua Gateway)**: `POST /api/{tenant_id}/chat/stream` (Ví dụ: `/api/primer-diamond/chat/stream`)
 
-**Ví dụ cURL gọi API:**
-```bash
-curl -X POST "https://llmerp.hextech.vn/primer-diamond/api/v1/chat" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
-  -H "X-Role-Level: 1" \
-  -d '{
-    "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
-    "session_id": "sess_abc123"
-  }'
-```
+**Ví dụ JS (Dùng Fetch API & SSE):**
+```javascript
+const res = await fetch("https://llmerp.hextech.vn/api/primer-diamond/chat/stream", {
+    method: "POST",
+    headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <YOUR_JWT_TOKEN>"
+    },
+    body: JSON.stringify({
+        "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
+        "session_id": "sess_abc123" // Truyền nếu đang tiếp tục chat
+    })
+});
 
-**Body Request (JSON)**:
-```json
-{
-  "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
-  "session_id": "sess_abc123", // (Optional) Truyền nếu đang tiếp tục chat
-  "project_name": "Elysian", // (Optional) Gợi ý cho AI biết đang hỏi dự án nào
-  "customer_name": "Nguyen Van A", // (Optional) Truyền nếu user đang hỏi đặt chỗ
-  "customer_phone": "0901234567"   // (Optional) Truyền nếu user đang hỏi đặt chỗ
+const reader = res.body.getReader();
+const decoder = new TextDecoder("utf-8");
+
+while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    const chunk = decoder.decode(value, { stream: true });
+    // Parse chuỗi chunk (format: data: { JSON } \n\n)
+    // - data.text: Chứa text sinh ra từng chữ
+    // - data.suggested_questions: Gợi ý trả về ở chunk cuối
 }
 ```
 
-**Body Response (JSON)**:
+**Cấu trúc dữ liệu Stream trả về (SSE Format)**:
+Mỗi cục dữ liệu trả về sẽ bắt đầu bằng `data: ` và kết thúc bằng `\n\n`. Khi kết thúc stream, server trả về `data: [DONE]`.
+
 ```json
-{
-  "session_id": "sess_abc123",
-  "answer": "Hiện tại căn hộ 2PN tại Elysian có giá tham khảo từ...",
-  "intent": "sales_inquiry", // Intent AI nhận diện: customer_support, sales_inquiry, v.v.
-  "sources": [
-    {
-      "document_code": "CSBH_Elysian_01",
-      "document_name": "Chính sách bán hàng",
-      "doc_group": "chinh_sach",
-      "excerpt": "Căn 2PN giá từ...",
-      "page": 1
-    }
-  ],
-  "tool_calls": [
-    {
-      "tool_name": "inventory_lookup",
-      "input_summary": "Tìm căn 2PN",
-      "output_summary": "Còn 5 căn",
-      "duration_ms": 150,
-      "success": true
-    }
-  ],
-  "fallback": false, // True nếu Bot bị lỗi/không thể trả lời
-  "fallback_reason": "",
-  "was_injected": false,
-  "project_name": "Elysian", // Dự án AI thực tế đã nhận diện được
-  "response_time_ms": 2340,
-  "suggested_questions": [
-    "Cho tôi xem thiết kế căn 2PN",
-    "Chính sách thanh toán thế nào?",
-    "Có hỗ trợ vay ngân hàng không?"
-  ],
-  "sales_data": {} // Dữ liệu thô (nếu FE cần render UI dạng thẻ/danh sách)
-}
+data: {"text": "Hiện tại "}
+data: {"text": "căn hộ 2PN "}
+...
+data: {"text": "", "suggested_questions": ["Chính sách thanh toán?", "Có vay ngân hàng không?"], "sources": [{"doc_name": "CSBH.pdf"}]}
+data: [DONE]
 ```
 
 **Chi tiết thêm cho FE**:
@@ -106,7 +86,36 @@ curl -X POST "https://llmerp.hextech.vn/primer-diamond/api/v1/chat" \
 
 ---
 
-### 3.2. API Lấy Danh Sách Dự Án (`GET /api/v1/projects`)
+### 3.2. API Hỏi Đáp Chatbot - Dạng Đồng Bộ (`POST /.../chat`)
+
+Nếu hệ thống Frontend/Mobile của bạn không hỗ trợ SSE (Server-Sent Events) hoặc không muốn dùng Stream, bạn có thể dùng API Đồng Bộ. Agent sẽ xử lý xong toàn bộ câu trả lời rồi mới trả về một JSON cục duy nhất. **Lưu ý: API này sẽ phải đợi khá lâu (5-15s) trước khi nhận được phản hồi.**
+
+**Endpoint (qua Gateway)**: `POST /{tenant_id}/chat` (Ví dụ: `/api/primer-diamond/chat`)
+
+**Ví dụ JS (Fetch API):**
+```javascript
+const res = await fetch("https://llmerp.hextech.vn/api/primer-diamond/chat", {
+    method: "POST",
+    headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <YOUR_JWT_TOKEN>"
+    },
+    body: JSON.stringify({
+        "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
+        "session_id": "sess_abc123"
+    })
+});
+
+const data = await res.json();
+// data.answer -> Nội dung trả lời (Markdown)
+// data.suggested_questions -> Mảng câu hỏi gợi ý
+// data.sources -> Mảng tài liệu nguồn
+// data.session_id -> Lưu lại để dùng cho lượt chat sau
+```
+
+---
+
+### 3.3. API Lấy Danh Sách Dự Án (`GET /api/v1/projects`)
 
 Dùng để hiển thị danh sách các dự án hiện có trên Dropdown của giao diện Chat.
 
@@ -125,7 +134,7 @@ Dùng để hiển thị danh sách các dự án hiện có trên Dropdown củ
 
 ---
 
-### 3.3. API Kiểm Tra Trạng Thái Hệ Thống (`GET /health`)
+### 3.4. API Kiểm Tra Trạng Thái Hệ Thống (`GET /health`)
 
 Dùng để Frontend/Load Balancer kiểm tra tình trạng kết nối.
 
@@ -144,7 +153,7 @@ Dùng để Frontend/Load Balancer kiểm tra tình trạng kết nối.
 
 ---
 
-### 3.4. Các Mã Lỗi (HTTP Status Codes)
+### 3.5. Các Mã Lỗi (HTTP Status Codes)
 
 Trong quá trình gọi API, Frontend cần xử lý các mã trạng thái HTTP sau:
 

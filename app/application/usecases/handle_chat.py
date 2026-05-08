@@ -239,6 +239,24 @@ class HandleChatUseCase:
                 "customer_phone": req.customer_phone or "",
             }
 
+        # Khởi tạo task báo cáo "Đang kiểm tra" nếu LLM quá chậm (> 3s)
+        state["real_token_emitted"] = False
+        
+        async def filler_task(q: asyncio.Queue, s: dict):
+            await asyncio.sleep(3.0)
+            if not s.get("real_token_emitted"):
+                filler_text = "Dạ em đang kiểm tra thông tin, anh/chị đợi một chút nhé...\n\n"
+                words = filler_text.split(" ")
+                for i, word in enumerate(words):
+                    if s.get("real_token_emitted"): 
+                        break
+                    # Stream từng từ một cách tự nhiên
+                    chunk_text = word + " " if i < len(words) - 1 else word
+                    await q.put({"type": "filler_token", "content": chunk_text})
+                    await asyncio.sleep(0.15)
+
+        filler_bg = asyncio.create_task(filler_task(queue, state))
+
         # Run graph in background task
         graph_task = asyncio.create_task(self._graph.ainvoke(state))
 
@@ -247,10 +265,17 @@ class HandleChatUseCase:
             chunk = await queue.get()
             if chunk["type"] == "done":
                 break
+            elif chunk["type"] == "filler_token":
+                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
             elif chunk["type"] == "token":
+                state["real_token_emitted"] = True
                 yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
             elif chunk["type"] == "suggestions":
                 yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
+        
+        # Hủy task mồi nếu nó vẫn đang chạy
+        if not filler_bg.done():
+            filler_bg.cancel()
 
         # Wait for graph to finish completely
         final_state = await graph_task
