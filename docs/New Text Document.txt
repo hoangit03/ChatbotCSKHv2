@@ -1,0 +1,807 @@
+{
+    "expiresIn": "3600",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjlhZjFlODlmLTJiZjItNGZhNi1hNWM0LTlmZTZjMDhmOWZmMyIsImlzQWN0aXZlIjp0cnVlLCJlbWFpbCI6InN5c2FkbWluQGN0Zy5jb20iLCJzdGFmZklkIjpudWxsLCJyb2xlSWQiOiI0ODBkNzFhNi03Y2I3LTRkZGEtYTUxNy1jZDMwNmU2NjU0YTkiLCJpYXQiOjE3NzgxNjE1MjksImV4cCI6MTc3ODE2NTEyOX0.5WuY_nMhg_END6s8gRAeIVw5XG4hKAWrLK9OIDO_Vjg",
+    "user": {
+        "id": "9af1e89f-2bf2-4fa6-a5c4-9fe6c08f9ff3",
+        "email": "sysadmin@ctg.com",
+        "isActive": true,
+        "roleId": "480d71a6-7cb7-4dda-a517-cd306e6654a9",
+        "staffId": null,
+        "avatar": null,
+        "code": null,
+        "isForgetPassword": false,
+        "notiSound": false,
+        "notiShow": false,
+        "informationLand": false,
+        "specialOffers": false,
+        "accountBalance": false,
+        "notiOther": false,
+        "role": {
+            "id": "480d71a6-7cb7-4dda-a517-cd306e6654a9",
+            "name": "sysadmin",
+            "permissions": [
+                {
+                    "id": "d261c519-44ea-4ebb-a9da-f07c6510a836",
+                    "name": "Tạo role",
+                    "key": "role.create",
+                    "permissionGroupId": "aeace530-17ac-4a84-b665-bdfcfbeb0fa1"
+                },
+                {
+                    "id": "63632ae5-755a-4360-b64b-22f959092295",
+                    "name": "Xem phân quyền",
+                    "key": "role.read",
+                    "permissionGroupId": "aeace530-17ac-4a84-b665-bdfcfbeb0fa1"
+                },
+                {
+                    "id": "87ec2797-78ff-4016-9d06-015bc2a9f1d9",
+                    "name": "Cập nhật phân quyền",
+                    "key": "role.update",
+                    "permissionGroupId": "aeace530-17ac-4a84-b665-bdfcfbeb0fa1"
+                },
+                {
+                    "id": "0d502a6c-21dc-4010-90f2-6faea9b31f92",
+                    "name": "Xoá phân quyền",
+                    "key": "role.delete",
+                    "permissionGroupId": "aeace530-17ac-4a84-b665-bdfcfbeb0fa1"
+                },
+                {
+                    "id": "972eb77c-35ce-425e-8dcd-08ee811993e8",
+                    "name": "Thêm người dùng vào phần quyền",
+                    "key": "role.add.user",
+                    "permissionGroupId": "aeace530-17ac-4a84-b665-bdfcfbeb0fa1"
+                },
+                {
+                    "id": "f3dd6eea-cce3-4001-ae5e-38ac0a6d8d05",
+                    "name": "Tạo user",
+                    "key": "user.create",
+                    "permissionGroupId": "fff1fc0f-8c5a-4ba3-9f89-ebdf32d9e886"
+                },
+                {
+                    "id": "ca537f04-6aa2-49db-b62f-af8ccd637895",
+                    "name": "Lấy thông tin của user",
+                    "key": "user.read",
+                    "permissionGroupId": "fff1fc0f-8c5a-4ba3-9f89-ebdf32d9e886"
+                },
+                {
+                    "id": "bc20d0d5-336d-45d5-a03d-9813db453ee2",
+                    "name": "Cập nhật thông tin user",
+                    "key": "user.update",
+                    "permissionGroupId": "fff1fc0f-8c5a-4ba3-9f89-ebdf32d9e886"
+                },
+                {
+                    "id": "ed121881-05f6-4cf2-a198-fe74622399fd",
+                    "name": "Xóa user",
+                    "key": "user.delete",
+                    "permissionGroupId": "fff1fc0f-8c5a-4ba3-9f89-ebdf32d9e886"
+                },
+                {
+                    "id": "5fd763ca-71b7-4f4b-8731-61ae96cb0231",
+                    "name": "Tạo nhân viên",
+                    "key": "staff.create",
+                    "permissionGroupId": "9c0ae4d0-b3df-489a-b60c-696100847a6f"
+                },
+                {
+                    "id": "151ec57b-9de7-43cf-8e7b-c1cd85e9d9b6",
+                    "name": "Lấy thông tin của nhân viên",
+                    "key": "staff.read",
+                    "permissionGroupId": "9c0ae4d0-b3df-489a-b60c-696100847a6f"
+                },
+                {
+                    "id": "9e01050d-a89e-45f4-884a-47f05ef6fb43",
+                    "name": "Cập nhật thông tin nhân viên",
+                    "key": "staff.update",
+                    "permissionGroupId": "9c0ae4d0-b3df-489a-b60c-696100847a6f"
+                },
+                {
+                    "id": "b530def0-8bcc-4c74-9cf5-69319aa8dd91",
+                    "name": "Xóa nhân viên",
+                    "key": "staff.delete",
+                    "permissionGroupId": "9c0ae4d0-b3df-489a-b60c-696100847a6f"
+                },
+                {
+                    "id": "78c23fb6-f4ba-4f83-a538-505eca0f2652",
+                    "name": "Tạo khách hàng",
+                    "key": "customer.create",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "a2a3adcb-d6f9-4885-8f91-7ea9f3a8acfa",
+                    "name": "Lấy thông tin của khách hàng",
+                    "key": "customer.read",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "2c6e66c8-54f8-412d-9b03-a3516518f009",
+                    "name": "Cập nhật thông tin khách hàng",
+                    "key": "customer.update",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "bc595b68-5eba-4895-a674-3ac00c6e4be9",
+                    "name": "Xóa khách hàng",
+                    "key": "customer.delete",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "37152890-2852-497d-a7dd-ce9123f8f016",
+                    "name": "Tạo chính sách hoa hồng",
+                    "key": "commission.policy.create",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "67e4b899-fac4-450c-b9c1-28f267cc0daa",
+                    "name": "Xem chính sách hoa hồng",
+                    "key": "commission.policy.read",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "cd328712-85e4-4228-9ecf-d2c7d2d9cf3e",
+                    "name": "Chi hoa hồng",
+                    "key": "commission.paid",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "2a7d0f19-9361-4aa7-bd32-a1e2622ccf57",
+                    "name": "Xem danh sách chi hoa hồng",
+                    "key": "commission.read",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "b6c262be-6df1-4959-82e8-6baad41ba8b3",
+                    "name": "Xem tất cả danh sách chi hoa hồng trong cách quân",
+                    "key": "commission.viewAll",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "c0d76a43-1f1b-4f81-b607-27de8a2e4500",
+                    "name": "Xem tất cả danh sách chi hoa hồng",
+                    "key": "commission.viewAll.unmask",
+                    "permissionGroupId": "7bf8e3c3-b527-4c2e-a5c4-1c013a3456dc"
+                },
+                {
+                    "id": "e3d9c28a-f336-414a-b401-59213851a1be",
+                    "name": "import data giao dịch",
+                    "key": "transaction.import",
+                    "permissionGroupId": "6b317784-5ebb-4acb-af21-ede4ba877ab1"
+                },
+                {
+                    "id": "c33310da-9ae9-4068-9987-bbf0003743e9",
+                    "name": "Tạo dự án",
+                    "key": "project.create",
+                    "permissionGroupId": "f97cf997-b861-4db6-b3e9-0b19ff11179d"
+                },
+                {
+                    "id": "b59edf52-9557-450d-b365-55d2210be1e8",
+                    "name": "Cập nhật dự án",
+                    "key": "project.update",
+                    "permissionGroupId": "f97cf997-b861-4db6-b3e9-0b19ff11179d"
+                },
+                {
+                    "id": "f29bf5f8-0209-4db0-86c1-db23899bdb3c",
+                    "name": "Xem dự án",
+                    "key": "project.read",
+                    "permissionGroupId": "f97cf997-b861-4db6-b3e9-0b19ff11179d"
+                },
+                {
+                    "id": "02c19b05-4280-461f-a100-e562282fad4c",
+                    "name": "Cập nhật sản phẩm",
+                    "key": "product.update",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "ce313cd0-0f6d-4549-a9f0-a708086e58c2",
+                    "name": "Tạo sản phẩm",
+                    "key": "product.create",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "72a2910a-49f0-4b1f-bdc0-6fe468b8b312",
+                    "name": "Xem sản phẩm",
+                    "key": "product.read",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "e8a2aa2b-e42f-44cc-9729-2d0b61e26bf5",
+                    "name": "Xem giá sản phẩm",
+                    "key": "product.viewPrice",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "43455aa8-e317-4dff-8275-73e3a96f2dbc",
+                    "name": "Tạo phiếu",
+                    "key": "ticket.create",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "b21dd809-45cb-4b07-aba0-b6c9e11cd83a",
+                    "name": "Cập nhật phiếu",
+                    "key": "ticket.update",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "12ebb7a4-2da9-40bd-bc90-138062d89edb",
+                    "name": "View all in orgchart",
+                    "key": "customer.viewInOrgchart",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "cd8b8152-f129-47e6-b0d0-fb0c01e2a1a2",
+                    "name": "Xem phiếu",
+                    "key": "ticket.read",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "55af1e3f-10e4-4443-8bb1-070f5a5438ab",
+                    "name": "Tạo giúp phiếu",
+                    "key": "ticket.support",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "017d4f85-1b39-486c-9705-ba8df2ef53f5",
+                    "name": "Xem tất cả phiếu trong cánh quân",
+                    "key": "ticket.viewAllOrg",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "4f86832d-1663-4179-8baa-89c9ae23a048",
+                    "name": "View unmask",
+                    "key": "customer.unmask",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "778a47cc-ecf1-455a-b1b4-72afec5e0d32",
+                    "name": "Duyệt phiếu",
+                    "key": "ticket.approve",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "4fe9c20c-356f-49be-85a9-5fea4fa04912",
+                    "name": "Xem tất cả phiếu",
+                    "key": "ticket.viewAll",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "94be8fb8-9c29-42f7-8485-ecbdd8b474fd",
+                    "name": "Ráp ưu tiên",
+                    "key": "ticket.order",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "4b3cd6e5-3a25-4c72-83c6-f62d3eec3fdd",
+                    "name": "Show tracking event",
+                    "key": "trackingEvent.read",
+                    "permissionGroupId": "1dc4ac0e-3457-4a8a-b148-f28d07bfe16f"
+                },
+                {
+                    "id": "780f0094-93db-4fab-8d2c-789a3e33e4be",
+                    "name": "delete tracking event",
+                    "key": "trackingEvent.delete",
+                    "permissionGroupId": "1dc4ac0e-3457-4a8a-b148-f28d07bfe16f"
+                },
+                {
+                    "id": "78a15678-7d79-4164-bd71-62ebb565e43a",
+                    "name": "Hiển thị thiết lập dự án",
+                    "key": "projectSetting.read",
+                    "permissionGroupId": "b0cffea4-b2db-4182-9a90-5c8a8b9e9ccb"
+                },
+                {
+                    "id": "8f817c5b-1c21-4056-8937-411613c4de40",
+                    "name": "Cập nhập thiết lập dự án",
+                    "key": "projectSetting.update",
+                    "permissionGroupId": "b0cffea4-b2db-4182-9a90-5c8a8b9e9ccb"
+                },
+                {
+                    "id": "2639faaa-7d48-42c0-9137-1f2506ebd64b",
+                    "name": "Hiển thị phiếu thu",
+                    "key": "receipt.read",
+                    "permissionGroupId": "1ac4a59c-eb00-4cd8-9500-cf10bcc86545"
+                },
+                {
+                    "id": "38d83a3c-b755-45a4-aacd-bbc3c1faa918",
+                    "name": "Tạo phiếu thu",
+                    "key": "receipt.create",
+                    "permissionGroupId": "1ac4a59c-eb00-4cd8-9500-cf10bcc86545"
+                },
+                {
+                    "id": "5fe1bc29-e3c3-4651-ae34-2e762f2bcad0",
+                    "name": "Cập nhập phiếu thu",
+                    "key": "receipt.update",
+                    "permissionGroupId": "1ac4a59c-eb00-4cd8-9500-cf10bcc86545"
+                },
+                {
+                    "id": "5e24bde9-1cb5-41b7-9c96-62de979a40d9",
+                    "name": "Duyệt phiếu thu",
+                    "key": "receipt.approve",
+                    "permissionGroupId": "1ac4a59c-eb00-4cd8-9500-cf10bcc86545"
+                },
+                {
+                    "id": "f09d2585-9fea-451a-b388-1bc9e3cef0aa",
+                    "name": "Hiển thị quy trình",
+                    "key": "work.flow.read",
+                    "permissionGroupId": "6569a29b-9eb9-4c2c-897f-844eac5836f2"
+                },
+                {
+                    "id": "6f3b9c8f-7d89-496e-8116-7146ea74cb6d",
+                    "name": "Tạo quy trình",
+                    "key": "work.flow.create",
+                    "permissionGroupId": "6569a29b-9eb9-4c2c-897f-844eac5836f2"
+                },
+                {
+                    "id": "db123c73-c91a-4ad7-b2b1-fef3b03c48b0",
+                    "name": "Cập nhập quy trình",
+                    "key": "work.flow.update",
+                    "permissionGroupId": "6569a29b-9eb9-4c2c-897f-844eac5836f2"
+                },
+                {
+                    "id": "c31f8911-a8ff-43ad-8af9-578c65df17aa",
+                    "name": "Xoá quy trình",
+                    "key": "work.flow.delete",
+                    "permissionGroupId": "6569a29b-9eb9-4c2c-897f-844eac5836f2"
+                },
+                {
+                    "id": "b88ef726-b2ba-43b9-acbd-81d6eb528ba0",
+                    "name": "Hiển thị tài liệu in",
+                    "key": "print.read",
+                    "permissionGroupId": "9892c0c9-eace-4e18-ac93-1a03f10ac569"
+                },
+                {
+                    "id": "c4961385-aa7d-47aa-8372-f7a83d845d29",
+                    "name": "Tạo tài liệu in",
+                    "key": "print.create",
+                    "permissionGroupId": "9892c0c9-eace-4e18-ac93-1a03f10ac569"
+                },
+                {
+                    "id": "07cbdeda-a180-409d-8627-57c9ffba48eb",
+                    "name": "Cập nhập tài liệu in",
+                    "key": "print.update",
+                    "permissionGroupId": "9892c0c9-eace-4e18-ac93-1a03f10ac569"
+                },
+                {
+                    "id": "f2b91f4d-6b15-4a5b-b190-43ac7aa06b95",
+                    "name": "Xóa tài liệu in",
+                    "key": "print.delete",
+                    "permissionGroupId": "9892c0c9-eace-4e18-ac93-1a03f10ac569"
+                },
+                {
+                    "id": "e2e75e8b-ec59-415a-a4aa-9101d4b8ff2e",
+                    "name": "Xem tất cả sản phẩm",
+                    "key": "product.viewAll",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "6f5cd0b8-e3d1-483e-8368-a892f386f437",
+                    "name": "Mở bán sản phẩm",
+                    "key": "product.sale",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "eeaf4f4a-d8a5-4f16-a089-2cbb82eb2143",
+                    "name": "Chuyển sản phẩm cho đơn vị",
+                    "key": "product.move",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "55d857c9-287e-4a68-852f-9681a0d3973f",
+                    "name": "Xem tất cả dự án",
+                    "key": "project.viewAll",
+                    "permissionGroupId": "f97cf997-b861-4db6-b3e9-0b19ff11179d"
+                },
+                {
+                    "id": "bea91ccc-e08b-4f7d-a32c-b3694aef28c0",
+                    "name": "Quản lý ráp ưu tiên",
+                    "key": "priority.management",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "8012045d-251a-4d2c-b129-acac42a97a6c",
+                    "name": "Tạo chương tình bán hàng",
+                    "key": "sales.program.create",
+                    "permissionGroupId": "3cf17af1-de5f-4f80-98e5-2b43ba49e396"
+                },
+                {
+                    "id": "33b8653f-9f4b-44fd-ae8a-5dde0110062e",
+                    "name": "Cập nhập chương trình bán hàng",
+                    "key": "sales.program.update",
+                    "permissionGroupId": "3cf17af1-de5f-4f80-98e5-2b43ba49e396"
+                },
+                {
+                    "id": "943f5580-9bc6-417a-b7e0-16f6fd756bc1",
+                    "name": "Xóa chương trình bán hàng",
+                    "key": "sales.program.delete",
+                    "permissionGroupId": "3cf17af1-de5f-4f80-98e5-2b43ba49e396"
+                },
+                {
+                    "id": "3e7c2207-4629-4a80-92e9-8145557d2aa0",
+                    "name": "View all",
+                    "key": "customer.viewAll",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "17aa4301-92e8-4572-9b4d-c470dc6a78f9",
+                    "name": "Hiển thị chương trình bán hàng",
+                    "key": "sales.program.read",
+                    "permissionGroupId": "3cf17af1-de5f-4f80-98e5-2b43ba49e396"
+                },
+                {
+                    "id": "94935ba5-b9ac-488e-baa8-0d5047fd8e54",
+                    "name": "Mở và khoá ráp ưu tiên",
+                    "key": "sales.program.open.priority",
+                    "permissionGroupId": "3cf17af1-de5f-4f80-98e5-2b43ba49e396"
+                },
+                {
+                    "id": "d50243e2-3a6a-4b8b-a3f9-42900718e869",
+                    "name": "Hiển thị kpi - nhiệm vụ",
+                    "key": "kpi.read",
+                    "permissionGroupId": "6d1b781d-9d3a-44b9-ade4-4c1ffc763df5"
+                },
+                {
+                    "id": "8c563f72-c48b-4b22-a974-8059560a18d0",
+                    "name": "Tạo mới kpi - nhiệm vụ",
+                    "key": "kpi.create",
+                    "permissionGroupId": "6d1b781d-9d3a-44b9-ade4-4c1ffc763df5"
+                },
+                {
+                    "id": "e0e7dfa9-6cd1-4764-8a34-315b24418000",
+                    "name": "Cập nhập kpi - nhiệm vụ",
+                    "key": "kpi.update",
+                    "permissionGroupId": "6d1b781d-9d3a-44b9-ade4-4c1ffc763df5"
+                },
+                {
+                    "id": "65f3ce24-d6af-4fc4-b6d3-6a1b74d60d09",
+                    "name": "Xóa kpi - nhiệm vụ",
+                    "key": "kpi.delete",
+                    "permissionGroupId": "6d1b781d-9d3a-44b9-ade4-4c1ffc763df5"
+                },
+                {
+                    "id": "d0634059-2712-4faa-9c2a-54ec8db7ddcf",
+                    "name": "View all",
+                    "key": "customer.citystar.viewAll",
+                    "permissionGroupId": "8c88de57-ad6f-4c74-8363-57e364f02262"
+                },
+                {
+                    "id": "69314c50-bc86-4f37-9d56-6a6f7e246b4c",
+                    "name": "Tạo mới thẻ khách hàng",
+                    "key": "qrcode.create",
+                    "permissionGroupId": "923bde4b-5e60-4819-9d7f-3e2747aa0fff"
+                },
+                {
+                    "id": "cd6dcc82-46ee-4b80-8d8a-716d833fb3fc",
+                    "name": "View all",
+                    "key": "qrcode.viewAll",
+                    "permissionGroupId": "923bde4b-5e60-4819-9d7f-3e2747aa0fff"
+                },
+                {
+                    "id": "f6f74607-c680-4bdb-b5eb-c4e406f732d5",
+                    "name": "Mở bán hàng sự kiện",
+                    "key": "event.sales.open",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "4d8e3126-5ef2-4a6b-9bdc-b53e47d447f7",
+                    "name": "Huỷ phiếu hoàn tiền",
+                    "key": "ticket.canceled",
+                    "permissionGroupId": "593fae57-1398-4216-8398-2c62261d5b10"
+                },
+                {
+                    "id": "d0df8723-1587-42c6-93f0-6bf2aa5123c8",
+                    "name": "Hiển thị phiếu chi",
+                    "key": "refund.read",
+                    "permissionGroupId": "9eafce73-09a1-4f47-9c37-bda9ac5797da"
+                },
+                {
+                    "id": "e19353bb-273a-4c36-a1fa-a7d8730ed5ee",
+                    "name": "Tạo phiếu chi",
+                    "key": "refund.create",
+                    "permissionGroupId": "9eafce73-09a1-4f47-9c37-bda9ac5797da"
+                },
+                {
+                    "id": "32810bbd-b622-4227-bd6c-d91f9dc98c4f",
+                    "name": "Cập nhập phiếu chi",
+                    "key": "refund.update",
+                    "permissionGroupId": "9eafce73-09a1-4f47-9c37-bda9ac5797da"
+                },
+                {
+                    "id": "e4da8584-4373-458c-8ddd-88baef396c6d",
+                    "name": "Duyệt phiếu chi",
+                    "key": "refund.approve",
+                    "permissionGroupId": "9eafce73-09a1-4f47-9c37-bda9ac5797da"
+                },
+                {
+                    "id": "c60cb707-8f1e-4749-9b17-dbef224a0ca6",
+                    "name": "Tạo esalekit",
+                    "key": "esalekit.create",
+                    "permissionGroupId": "584817d1-4241-4a4f-aec2-3e42ba851709"
+                },
+                {
+                    "id": "138ff686-d579-48ac-aef4-df1482c9a1c6",
+                    "name": "Chỉnh sửa esalekit",
+                    "key": "esalekit.edit",
+                    "permissionGroupId": "584817d1-4241-4a4f-aec2-3e42ba851709"
+                },
+                {
+                    "id": "e473e780-4053-4974-88d1-8696b64ec970",
+                    "name": "Xem esalekit",
+                    "key": "esalekit.view",
+                    "permissionGroupId": "584817d1-4241-4a4f-aec2-3e42ba851709"
+                },
+                {
+                    "id": "b82490e9-54a1-4b80-abaa-8011c0578fa2",
+                    "name": "Reset password",
+                    "key": "staff.reset.pass",
+                    "permissionGroupId": "9c0ae4d0-b3df-489a-b60c-696100847a6f"
+                },
+                {
+                    "id": "27fa1bd2-342a-4842-b7ac-8683b4994085",
+                    "name": "Đăng kí sản phẩm",
+                    "key": "sign.product.sign",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "aa15cbfb-f7e4-4a4a-98b8-1627e3f56fbd",
+                    "name": "Khóa sản phẩm",
+                    "key": "product.lock",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "634a6c97-10c3-496f-9730-7a886170068a",
+                    "name": "Đánh giá khách hàng",
+                    "key": "customer.appraisal",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "42019f2c-a814-4cc5-baaf-e07e6ae5ff3d",
+                    "name": "Danh sách giao dịch",
+                    "key": "event.sales.transaction",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "d07b7dee-059e-4484-9f01-02aad3256062",
+                    "name": "Đăng ký",
+                    "key": "event.sales.register",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "6732bc54-0575-4562-b5b5-e2fb8ef904cc",
+                    "name": "ĐVBH Xác nhận",
+                    "key": "event.sales.confirm",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "b244954e-4c3c-416c-b193-87740ceee5ca",
+                    "name": "Nhập thông tin khách hàng",
+                    "key": "event.sales.infor.customer",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "d7ae7f6d-98a4-4be5-af39-4084718e288f",
+                    "name": "Trả về",
+                    "key": "event.sales.return",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "e3b31ee1-5166-4905-a6ad-c7ebcc816dca",
+                    "name": "Gửi yêu cầu",
+                    "key": "event.sales.request",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "4c602638-53e2-4ea3-b042-0031d746c89e",
+                    "name": "Hoàn tất HS",
+                    "key": "event.sales.completed",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "5dd1957b-da1a-4ef3-ad00-f2d476fca928",
+                    "name": "Bổ sung HS",
+                    "key": "event.sales.add.profile",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "9795f2ca-3f84-436c-9c8c-c649809332af",
+                    "name": "Chuyển sản phẩm",
+                    "key": "event.sales.forward.product",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "85f3dcd7-37be-4c78-9772-c178a9b894de",
+                    "name": "Thu hồi sản phẩm",
+                    "key": "event.sales.regain.product",
+                    "permissionGroupId": "7d84a9da-0810-4617-9bfa-5285ead0bf81"
+                },
+                {
+                    "id": "550cba18-e5c3-4fa7-85b2-eedac4dddd86",
+                    "name": "Lead",
+                    "key": "lead",
+                    "permissionGroupId": "1513e834-3076-47b8-bd07-a9ecb8cf7614"
+                },
+                {
+                    "id": "6341ffa8-86f4-41ff-851c-140a668d2625",
+                    "name": "View all",
+                    "key": "lead.viewAll",
+                    "permissionGroupId": "1513e834-3076-47b8-bd07-a9ecb8cf7614"
+                },
+                {
+                    "id": "7d5a126c-e8e8-4aaf-afee-d7edbf849833",
+                    "name": "Take care",
+                    "key": "lead.takeCare",
+                    "permissionGroupId": "1513e834-3076-47b8-bd07-a9ecb8cf7614"
+                },
+                {
+                    "id": "1cb03997-abeb-43f1-867c-ff5313f66432",
+                    "name": "Nhận email duyệt khách hàng lớn",
+                    "key": "customer.sendMailCustomerBig",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "4f260812-4cc6-4ab0-85a2-c6a17577b586",
+                    "name": "Phân bổ khách hàng lớn",
+                    "key": "customer.customerBigAssign",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "47ea1a6d-406c-4bff-bf38-18f9d3c38d3b",
+                    "name": "Chăm sóc khách hàng lớn",
+                    "key": "customer.customerBigTakeCare",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "5f8f956d-1aed-44e8-993c-7246c42fa934",
+                    "name": "Tạo chính sách",
+                    "key": "sale.policy.create",
+                    "permissionGroupId": "46cfee57-0417-4d3a-9c9d-0e6c8d096be8"
+                },
+                {
+                    "id": "ca8d5e83-632b-4ae2-b32e-cfc02a0d7142",
+                    "name": "Sửa chính sách",
+                    "key": "sale.policy.edit",
+                    "permissionGroupId": "46cfee57-0417-4d3a-9c9d-0e6c8d096be8"
+                },
+                {
+                    "id": "7f0d2f17-48be-41d1-8459-5384ae08c636",
+                    "name": "Tạo hợp đồng",
+                    "key": "contract.create",
+                    "permissionGroupId": "aa8a213e-a129-4d27-9d7c-f5a1ca262cf7"
+                },
+                {
+                    "id": "404a2c64-6988-4b64-bc39-da953c221da7",
+                    "name": "Sửa hợp đồng",
+                    "key": "contract.edit",
+                    "permissionGroupId": "aa8a213e-a129-4d27-9d7c-f5a1ca262cf7"
+                },
+                {
+                    "id": "1da46565-6862-4995-ae20-a0813813ce5e",
+                    "name": "Xem chính sách",
+                    "key": "sale.policy.read",
+                    "permissionGroupId": "46cfee57-0417-4d3a-9c9d-0e6c8d096be8"
+                },
+                {
+                    "id": "d54cabee-5dd1-43bd-974b-d6fe86514e5b",
+                    "name": "Duyệt chính sách",
+                    "key": "sale.policy.approve",
+                    "permissionGroupId": "46cfee57-0417-4d3a-9c9d-0e6c8d096be8"
+                },
+                {
+                    "id": "ff533591-bac9-4cf0-a456-0af83b78e97a",
+                    "name": "Xem hợp đồng",
+                    "key": "contract.read",
+                    "permissionGroupId": "aa8a213e-a129-4d27-9d7c-f5a1ca262cf7"
+                },
+                {
+                    "id": "2b980e34-ecb8-4098-b611-cdfd02693b0a",
+                    "name": "Duyệt hợp đồng",
+                    "key": "contract.approve",
+                    "permissionGroupId": "aa8a213e-a129-4d27-9d7c-f5a1ca262cf7"
+                },
+                {
+                    "id": "a409cbb5-cf20-4b9c-8c67-6db5a18fd1e7",
+                    "name": "Thống kê công nợ",
+                    "key": "contract.debt.statistics",
+                    "permissionGroupId": "aa8a213e-a129-4d27-9d7c-f5a1ca262cf7"
+                },
+                {
+                    "id": "4c3613aa-e305-4e01-863a-e73eff38c764",
+                    "name": "Xem tất cả trạng thái của sản phẩm",
+                    "key": "product.view.status",
+                    "permissionGroupId": "aa831442-5a73-4a97-be84-01062f53b87b"
+                },
+                {
+                    "id": "8a334978-81e8-4db7-a149-52f2e95e43db",
+                    "name": "Tạo, xem và chỉnh sửa cấu hình",
+                    "key": "crm.configuration",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "2b64d2ae-a14e-4e98-8567-73d99d16d93d",
+                    "name": "Tạo và chỉnh sửa yêu cầu hỗ trợ",
+                    "key": "crm.create.support",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "1019fe32-4e43-4b59-8d89-8c68f45874b5",
+                    "name": "Nhận thông báo nhắc nhỡ",
+                    "key": "crm.get.notification",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "da1f6ee8-15ef-4acf-8806-c52861e0e10c",
+                    "name": "Xem tất cả yêu cầu hỗ trợ",
+                    "key": "crm.viewAll.support",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "7b69e1b1-5ccb-45ef-8b07-d7b951245f72",
+                    "name": "Xem tất cả yêu cầu hỗ trợ trong tổ chức",
+                    "key": "crm.viewAllOrg.support",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "2624d1cf-bb53-4c2d-baef-5093a28c3d54",
+                    "name": "Xem yêu cầu hỗ trợ",
+                    "key": "crm.view.support",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "4d280e08-4b59-4d58-ada5-2a83c37150b3",
+                    "name": "Tạo, xem và chỉnh sửa chiến dịch",
+                    "key": "crm.create_campaign",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "c41c8d20-b120-438b-9181-fea2325c554a",
+                    "name": "Xem thống kê",
+                    "key": "crm.view.statistic",
+                    "permissionGroupId": "e1eba1a3-2ba8-4a22-8ac5-61fa14a6e8d3"
+                },
+                {
+                    "id": "59cdb9d6-6e5d-4a09-8019-72ffac611949",
+                    "name": "View all log import",
+                    "key": "customer.customerViewAllLog",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "d7440e55-ffed-454e-8c1a-ad2ddfe3e53e",
+                    "name": "Tạo sơ đồ tổ chức",
+                    "key": "org.chart.create",
+                    "permissionGroupId": "076148a0-84f3-4600-b583-dcb0f46f92bb"
+                },
+                {
+                    "id": "94a4a354-a2e0-4636-9f67-3e45b4e4d86f",
+                    "name": "Sửa sơ đồ tổ chức",
+                    "key": "org.chart.edit",
+                    "permissionGroupId": "076148a0-84f3-4600-b583-dcb0f46f92bb"
+                },
+                {
+                    "id": "41f02610-d202-49ff-9748-884e38cd9be2",
+                    "name": "Xem sơ đồ tổ chức",
+                    "key": "org.chart.read",
+                    "permissionGroupId": "076148a0-84f3-4600-b583-dcb0f46f92bb"
+                },
+                {
+                    "id": "695c96af-ddae-4389-b5c8-db5f76b38d6c",
+                    "name": "Chia sẻ khách hàng",
+                    "key": "customer.share",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "ffdaec91-c1fe-4477-a66c-fe6772059358",
+                    "name": "Xem khách hàng giao dịch",
+                    "key": "customer.view.transaction",
+                    "permissionGroupId": "d66c55be-08ca-40fd-84ec-ed81fd9d35c4"
+                },
+                {
+                    "id": "f9c70f9f-c7ad-4236-9430-47a2c8c2c1cd",
+                    "name": "Cập nhập email, sms dự án",
+                    "key": "projectSetting.update.email",
+                    "permissionGroupId": "b0cffea4-b2db-4182-9a90-5c8a8b9e9ccb"
+                },
+                {
+                    "id": "c23b36a7-367b-4062-8738-9f65c448df19",
+                    "name": "View all log import",
+                    "key": "sale.policy.viewAllLog",
+                    "permissionGroupId": "46cfee57-0417-4d3a-9c9d-0e6c8d096be8"
+                }
+            ]
+        },
+        "staff": null
+    }
+}

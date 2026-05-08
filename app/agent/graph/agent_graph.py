@@ -67,7 +67,7 @@ def build_agent_graph(
         return route_by_intent(state)
 
     async def wrapped_classifier(state: AgentState) -> AgentState:
-        return await classify_intent(state, llm)
+        return await classify_intent(state, llm, tool_registry)
 
     # Build graph
     builder = StateGraph(AgentState)
@@ -98,5 +98,8 @@ def build_agent_graph(
     builder.add_edge("synthesizer", END)
 
     compiled = builder.compile()
-    log.info("agent_graph_compiled", max_iterations=max_iterations)
+    # Apply max_iterations guard — LangGraph uses recursion_limit
+    # to prevent infinite node traversals (e.g., routing bugs).
+    compiled.recursion_limit = max_iterations * 2  # mỗi iteration ~2 nodes
+    log.info("agent_graph_compiled", max_iterations=max_iterations, recursion_limit=compiled.recursion_limit)
     return compiled

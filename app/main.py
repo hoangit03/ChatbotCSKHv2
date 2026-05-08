@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware.auth import APIKeyMiddleware, APIKeyStore
-from app.api.v1.endpoints import chat, document, health, qa_import, project
+from app.api.v1.endpoints import chat, health, project
 from app.core.config.settings import get_settings
 from app.shared.errors.exceptions import AppError
 from app.shared.logging.logger import get_logger, setup_logging
@@ -67,25 +67,28 @@ async def lifespan(app: FastAPI):
         api_key=cfg.qdrant_api_key,
         collection=cfg.qdrant_collection,
     )
-    await vector_db.ensure_collection(dimension=cfg.embedding_dimension)
+    
+    # Retry logic for Qdrant connection during startup
+    import asyncio
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            await vector_db.ensure_collection(dimension=cfg.embedding_dimension)
+            log.info("qdrant_connected_successfully")
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                log.error("qdrant_connection_failed", error=str(e))
+                # Không raise exception để app vẫn start được (tránh crash loop), nhưng RAG sẽ lỗi
+            else:
+                log.warning("qdrant_connection_retry", attempt=attempt, max_retries=max_retries, error=str(e))
+                await asyncio.sleep(5)
+                
     app.state.vector_db = vector_db
 
     # ── 4. Storage ────────────────────────────────────────────────
     from app.infrastructure.storage.local_storage import LocalStorageAdapter
     storage = LocalStorageAdapter(base_path=cfg.storage_path)
-
-    # ── 5. Parser registry (OCP: đăng ký parser, không sửa code cũ) ──
-    from app.core.interfaces.parser_port import ParserRegistry
-    from app.infrastructure.parser.extractors.pdf_parser import PDFParser
-    from app.infrastructure.parser.extractors.docx_parser import DocxParser
-    from app.infrastructure.parser.extractors.excel_parser import ExcelParser
-    from app.infrastructure.parser.extractors.image_parser import ImageParser
-
-    parsers = ParserRegistry()
-    parsers.register(PDFParser())
-    parsers.register(DocxParser())
-    parsers.register(ExcelParser())
-    parsers.register(ImageParser())
 
     # ── 6. Sales API ──────────────────────────────────────────────
     from app.infrastructure.sql_api.sales_api_adapter import SalesAPIAdapter
@@ -111,14 +114,14 @@ async def lifespan(app: FastAPI):
     from app.agent.tools.qa_tool import QATool
     from app.agent.tools.rag_tool import RAGTool
     # ...
-    registry = ToolRegistry(vdb=vector_db)
+    registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
 
     from app.agent.tools.sales_tool import (
         AvailabilityTool,
-        BookingIntentTool,
         InventoryTool,
-        PaymentTool,
         UnitSearchTool,
+        ProjectListTool,
+        ConsultationTool,
     )
 
     registry.register(QATool(store=qa_store))
@@ -135,9 +138,9 @@ async def lifespan(app: FastAPI):
     if cfg.sales_api_configured:
         registry.register(AvailabilityTool(api=sales_api))
         registry.register(InventoryTool(api=sales_api))
-        registry.register(PaymentTool(api=sales_api))
         registry.register(UnitSearchTool(api=sales_api))
-        registry.register(BookingIntentTool(api=sales_api))
+        registry.register(ProjectListTool(api=sales_api))
+        registry.register(ConsultationTool(api=sales_api))
         log.info("sales_tools_registered")
     else:
         log.warning(
@@ -157,26 +160,21 @@ async def lifespan(app: FastAPI):
     )
 
     # ── 10. Use Cases ─────────────────────────────────────────────
-    from app.application.usecases.upload_document import UploadDocumentUseCase
     from app.application.usecases.handle_chat import HandleChatUseCase
-    from app.application.usecases.import_qa import ImportQAUseCase
     from app.infrastructure.cache.redis_history import RedisHistoryStore
+    from app.shared.logging.user_activity_log import UserActivityLogger
 
-    history_store = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
+    history_store    = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
+    activity_logger  = UserActivityLogger(log_dir="./storage/logs")
+    log.info("user_activity_logger_ready", log_dir="./storage/logs")
 
-    app.state.upload_doc_uc  = UploadDocumentUseCase(
-        cfg=cfg,
-        parser_registry=parsers,
-        embedder=embedder,
-        vector_db=vector_db,
-        storage=storage,
-    )
+
     app.state.handle_chat_uc = HandleChatUseCase(
         agent_graph=agent_graph,
-        history_store=history_store
+        history_store=history_store,
+        activity_logger=activity_logger,
     )
-    import_qa_uc = ImportQAUseCase(qa_store=qa_store)
-    app.state.import_qa_uc  = import_qa_uc
+
 
     # ── 11. API Key Store ─────────────────────────────────────────
 
@@ -238,17 +236,10 @@ Câu hỏi → Intent Classifier → Support Node (RAG + Q&A)
 # MIDDLEWARE (thứ tự: ngoài → trong)
 # ─────────────────────────────────────────────────────────────────
 
-# 1. CORS
-_origins = (
-    ["*"]
-    if not cfg.is_production
-    else [
-        "https://your-frontend.company.com",   # ← đổi theo domain thực
-    ]
-)
+# 1. CORS — từ settings (CORS_ORIGINS trong .env)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=cfg.cors_origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
@@ -275,8 +266,6 @@ async def auth_middleware(request: Request, call_next):
 API_V1 = "/api/v1"
 app.include_router(health.router)                               # /health
 app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat
-app.include_router(document.router,   prefix=API_V1)           # /api/v1/documents
-app.include_router(qa_import.router,  prefix=API_V1)           # /api/v1/qa
 app.include_router(project.router,    prefix=API_V1)           # /api/v1/projects
 
 

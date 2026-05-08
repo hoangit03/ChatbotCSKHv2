@@ -29,7 +29,15 @@ class Settings(BaseSettings):
     app_secret_key: str = "dev-secret-key-change-in-production-32ch"
     debug: bool = False
     # Key để gọi API trong dev/staging. Đặt trong .env: DEV_API_KEY=...
-    dev_api_key: str = "chatbot-dev-key-2024"
+    dev_api_key: str = "chatbot-primer"
+
+    # ── Brand / Persona ───────────────────────────────────────────
+    bot_name: str = "chatbot CT-Primer"
+    company_name: str = "CT Group"
+
+    # ── CORS ──────────────────────────────────────────────────────
+    # Comma-separated origins. "*" cho dev, cụ thể domain cho production
+    cors_origins: str = "*"
 
     # ── LLM ──────────────────────────────────────────────────────
     llm_provider: LLMProvider = "anthropic"
@@ -88,9 +96,9 @@ class Settings(BaseSettings):
     # ── Q&A Auto-load (DEPRECATED - Moved to API) ─────────────────
     # Prompt gợi ý dự án khi chưa xác định được
     project_suggestion_prompt: str = (
-        "Chào bạn! Để em hỗ trợ mình thông tin chính xác nhất về bảng giá và pháp lý, "
-        "mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
-        "Hiện em có thông tin chi tiết về các dự án: {projects}."
+        "Chào bạn! Rất vui được hỗ trợ mình. Để em có thể cung cấp thông tin chính xác nhất "
+        "về bảng giá, pháp lý và ưu đãi, mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
+        "Hiện em đang có thông tin chi tiết về: {projects}."
     )
 
     # ── Sales API toggle ──────────────────────────────────────────
@@ -111,12 +119,19 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse CORS origins từ comma-separated string."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
     def sales_api_configured(self) -> bool:
         """True nếu Sales API đã được cấu hình (không dùng placeholder URL)."""
-        _PLACEHOLDER = "https://sales-backend.internal.company.com"
+        url = self.sales_api_base_url.strip().rstrip("/")
         return (
             self.sales_api_enabled
-            and self.sales_api_base_url != _PLACEHOLDER
+            and url.startswith("http")
+            and "internal.company.com" not in url
+            and "example.com" not in url
             and bool(self.sales_api_key)
         )
 

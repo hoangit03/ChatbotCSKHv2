@@ -18,12 +18,15 @@ class RedisHistoryStore:
     def __init__(self, redis_pool, ttl: int = 3600):
         self._pool = redis_pool
         self._ttl = ttl
+        self._client = None
 
     def _get_client(self):
-        import redis.asyncio as aioredis
-        return aioredis.Redis(connection_pool=self._pool)
+        if self._client is None:
+            import redis.asyncio as aioredis
+            self._client = aioredis.Redis(connection_pool=self._pool)
+        return self._client
 
-    async def get_history(self, session_id: str, limit: int = 10) -> list[dict]:
+    async def get_history(self, session_id: str, limit: int = 20) -> list[dict]:
         """Lấy N tin nhắn gần nhất của session."""
         try:
             client = self._get_client()
@@ -46,8 +49,8 @@ class RedisHistoryStore:
             
             # Đẩy vào list
             await client.rpush(key, json.dumps(message, ensure_ascii=False))
-            # Cắt bớt nếu quá dài (ví dụ giữ 20 tin nhắn)
-            await client.ltrim(key, -20, -1)
+            # Cắt bớt nếu quá dài — giữ 30 messages = 15 turns (buffer đủ cho limit=20)
+            await client.ltrim(key, -30, -1)
             # Gia hạn TTL
             await client.expire(key, self._ttl)
         except Exception as e:

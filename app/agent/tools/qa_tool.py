@@ -89,6 +89,7 @@ class QAVectorStore:
         project: str | None = None,
         top_k: int = 3,
         query_vec: list[float] | None = None,
+        min_role_level: int | None = None,
     ) -> list[QAItem]:
         """
         Semantic search trong Qdrant qa_pairs collection.
@@ -98,7 +99,7 @@ class QAVectorStore:
         results = await self._vdb.search(
             vector=vec,
             top_k=top_k + 2,        # lấy dư để lọc threshold
-            filter=SearchFilter(project_name=project, status="active"),
+            filter=SearchFilter(project_name=project, status="active", min_role_level=min_role_level),
         )
 
         items: list[QAItem] = []
@@ -249,6 +250,7 @@ class QATool(AgentTool):
             project=state.get("project_name"),
             top_k=3,
             query_vec=query_vec,
+            min_role_level=state.get("min_role_level"),
         )
 
         if not results:

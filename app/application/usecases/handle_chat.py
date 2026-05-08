@@ -15,9 +15,11 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+import asyncio
 
 from app.agent.state.agent_state import AgentState, SourceRef, ToolCall, make_initial_state
 from app.shared.logging.logger import get_logger
+from app.infrastructure.cache.pg_history import save_chat_message_async
 
 log = get_logger(__name__)
 
@@ -32,6 +34,9 @@ class ChatRequest:
     # Thông tin khách hàng (dùng cho booking intent)
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    role_level: Optional[str] = None
 
 
 @dataclass
@@ -64,6 +69,8 @@ class ChatResponse:
     was_injected: bool = False
     project_name: Optional[str] = None    # Dự án được detect thực tế
     response_time_ms: int = 0
+    suggested_questions: list[str] = field(default_factory=list)  # 3 câu hỏi gợi ý tiếp theo
+    sales_data: dict = field(default_factory=dict)  # Raw sales data cho UI
 
 
 # ── Use Case ──────────────────────────────────────────────────────
@@ -74,11 +81,10 @@ class HandleChatUseCase:
     Graph được inject qua __init__ (DIP).
     """
 
-    def __init__(self, agent_graph, history_store=None) -> None:
-        # agent_graph là compiled LangGraph (kiểu CompiledStateGraph)
-        # Không type-hint cụ thể để tránh circular import
+    def __init__(self, agent_graph, history_store=None, activity_logger=None) -> None:
         self._graph = agent_graph
         self._history = history_store
+        self._activity_log = activity_logger  # UserActivityLogger (optional)
 
     async def execute(self, req: ChatRequest) -> ChatResponse:
         session_id = req.session_id or _new_session_id()
@@ -96,12 +102,13 @@ class HandleChatUseCase:
             session_id=session_id,
             raw_query=req.message,
             project_name=req.project_name,
+            min_role_level=int(req.role_level) if req.role_level else None,
         )
 
         # Load history và context nếu có
         if self._history:
             # 1. Load chat messages
-            history = await self._history.get_history(session_id)
+            history = await self._history.get_history(session_id, limit=20)
             state["messages"] = history
             
             # 2. Load persistent context (project_name)
@@ -132,8 +139,8 @@ class HandleChatUseCase:
             return ChatResponse(
                 session_id=session_id,
                 answer=(
-                    "Xin lỗi, hệ thống đang gặp sự cố. "
-                    "Vui lòng thử lại hoặc liên hệ Sales để được hỗ trợ."
+                    "Dạ, hiện tại hệ thống đang xử lý quá nhiều yêu cầu nên phản hồi chậm. "
+                    "Anh/chị vui lòng để lại số điện thoại để chuyên viên tư vấn gọi lại hỗ trợ mình ngay nhé."
                 ),
                 intent="unknown",
                 fallback=True,
@@ -142,10 +149,12 @@ class HandleChatUseCase:
             )
 
         # ── Map state → response ──────────────────────────────────
+        raw_intent = final_state.get("intent", "unknown")
+        intent_str = raw_intent.value if hasattr(raw_intent, "value") else str(raw_intent)
         response = ChatResponse(
             session_id=session_id,
             answer=final_state.get("final_answer", ""),
-            intent=final_state.get("intent", "unknown"),
+            intent=intent_str,
             sources=_map_sources(final_state.get("sources", [])),
             tool_calls=_map_tool_calls(final_state.get("tool_calls", [])),
             fallback=final_state.get("fallback", False),
@@ -153,15 +162,28 @@ class HandleChatUseCase:
             was_injected=final_state.get("was_injected", False),
             project_name=final_state.get("project_name"),
             response_time_ms=_ms(t0),
+            suggested_questions=final_state.get("suggested_questions", []),
+            sales_data=final_state.get("sales_data", {}),
         )
 
         # Lưu history (user msg & assistant answer)
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
+            # Đồng bộ sang Postgres
+            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
+            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            
             # Lưu lại project_name thực tế sau khi agent xử lý (có thể agent đã detect được project mới)
             if response.project_name:
                 await self._history.set_context(session_id, {"project_name": response.project_name})
+
+        # Ghi user activity audit log
+        if self._activity_log:
+            try:
+                await self._activity_log.log_chat_event(req, response)
+            except Exception as log_err:
+                log.warning("activity_log_failed", error=str(log_err))
 
         log.info(
             "chat_done",
@@ -175,11 +197,107 @@ class HandleChatUseCase:
 
         return response
 
+    async def execute_stream(self, req: ChatRequest):
+        """
+        [NEW] Stream mode for CB-02.
+        Yields SSE chunks: `data: {"text": "..."}`
+        """
+        import json
+        session_id = req.session_id or _new_session_id()
+        t0 = time.monotonic()
+
+        log.info(
+            "chat_stream_start",
+            session_id=session_id,
+            project=req.project_name,
+            msg_len=len(req.message),
+        )
+
+        queue = asyncio.Queue()
+        state = make_initial_state(
+            session_id=session_id,
+            raw_query=req.message,
+            project_name=req.project_name,
+            min_role_level=int(req.role_level) if req.role_level else None,
+        )
+        state["stream_queue"] = queue
+
+        # Load history and context
+        if self._history:
+            history = await self._history.get_history(session_id, limit=20)
+            state["messages"] = history
+            ctx = await self._history.get_context(session_id)
+            cached_project = ctx.get("project_name")
+            if not req.project_name or req.project_name.lower() in ["", "string", "none"]:
+                state["project_name"] = cached_project
+            else:
+                state["project_name"] = req.project_name
+
+        if req.customer_name or req.customer_phone:
+            state["sales_data"] = {
+                "customer_name":  req.customer_name or "",
+                "customer_phone": req.customer_phone or "",
+            }
+
+        # Run graph in background task
+        graph_task = asyncio.create_task(self._graph.ainvoke(state))
+
+        # Stream from queue
+        while True:
+            chunk = await queue.get()
+            if chunk["type"] == "done":
+                break
+            elif chunk["type"] == "token":
+                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+            elif chunk["type"] == "suggestions":
+                yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
+
+        # Wait for graph to finish completely
+        final_state = await graph_task
+        
+        # Map response
+        raw_intent = final_state.get("intent", "unknown")
+        intent_str = raw_intent.value if hasattr(raw_intent, "value") else str(raw_intent)
+        response = ChatResponse(
+            session_id=session_id,
+            answer=final_state.get("final_answer", ""),
+            intent=intent_str,
+            sources=_map_sources(final_state.get("sources", [])),
+            tool_calls=_map_tool_calls(final_state.get("tool_calls", [])),
+            fallback=final_state.get("fallback", False),
+            fallback_reason=final_state.get("fallback_reason", ""),
+            was_injected=final_state.get("was_injected", False),
+            project_name=final_state.get("project_name"),
+            response_time_ms=_ms(t0),
+            suggested_questions=final_state.get("suggested_questions", []),
+            sales_data=final_state.get("sales_data", {}),
+        )
+
+        # Save history
+        if self._history:
+            await self._history.append(session_id, "user", req.message)
+            await self._history.append(session_id, "assistant", response.answer)
+            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
+            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            
+            if response.project_name:
+                await self._history.set_context(session_id, {"project_name": response.project_name})
+
+        # Send raw sources/tool calls at the end
+        metadata_chunk = {
+            "sources": [{"doc": s.document_name, "excerpt": s.excerpt} for s in response.sources],
+            "intent": response.intent,
+            "session_id": session_id
+        }
+        yield f"data: {json.dumps(metadata_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
 
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _new_session_id() -> str:
-    return f"sess_{secrets.token_urlsafe(10)}"
+    import uuid
+    return str(uuid.uuid4())
 
 
 def _ms(t0: float) -> int:

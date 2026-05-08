@@ -1,48 +1,62 @@
-version: "3.9"
-
-# ══════════════════════════════════════════════════════════════
-# Real Estate Chatbot — Agent RAG
-# Chạy: docker-compose up -d
-# ══════════════════════════════════════════════════════════════
-
 services:
-
-  # ── Application ───────────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: Dockerfile
+<<<<<<< HEAD
       target: runtime
     image: chatbotcskhv2-api
     container_name: rag_api
     env_file: .env # load toàn bộ config từ .env
+=======
+    image: chatbotcskhv2-api
+    container_name: cskh_api
+    env_file: .env
+    environment:
+    - GUNICORN_WORKERS=2
+    - QDRANT_URL=http://core_qdrant:6333
+    - REDIS_URL=redis://:${REDIS_PASSWORD}@core_redis:6379/0
+    - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@core_postgres:5432/ragdb
+>>>>>>> b49e3199d8071bf38d5e560d4ffc1acd7663452d
     ports:
-      - "8006:8000"
+    - 8006:8000
     volumes:
+<<<<<<< HEAD
       - doc_storage:/app/storage/documents # file tài liệu persistent
     depends_on:
       qdrant:
         condition: service_started
       redis:
         condition: service_healthy
+=======
+    - doc_storage:/app/storage/documents
+>>>>>>> b49e3199d8071bf38d5e560d4ffc1acd7663452d
     restart: unless-stopped
     networks:
-      - rag_internal
-      - global_proxy_network
+    - global_proxy_network
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/health
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    # Resource limits — điều chỉnh theo server
+      timeout: 15s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 2G
         reservations:
-          memory: 512M
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '5'
 
+<<<<<<< HEAD
   # ── Streamlit Frontend ────────────────────────────────────────
   frontend:
     image: chatbotcskhv2-api
@@ -103,15 +117,11 @@ volumes:
     driver: local
   redis_data:
     driver: local
+=======
+volumes:
+>>>>>>> b49e3199d8071bf38d5e560d4ffc1acd7663452d
   doc_storage:
     driver: local
-
-# ── Network riêng — isolate khỏi mạng ngoài ──────────────────
 networks:
-  rag_internal:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
   global_proxy_network:
     external: true

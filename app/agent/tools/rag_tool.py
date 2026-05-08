@@ -53,7 +53,7 @@ class RAGTool(AgentTool):
         results = await self._vdb.search(
             vector=query_vec,
             top_k=self._top_k,
-            filter=SearchFilter(project_name=project, status="active"),
+            filter=SearchFilter(project_name=project, status="active", min_role_level=state.get("min_role_level")),
         )
 
 

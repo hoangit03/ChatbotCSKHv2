@@ -48,6 +48,40 @@ def sanitize_input(text: str, max_len: int = 2000) -> tuple[str, bool]:
 
 
 # ─────────────────────────────────────────────────────────────────
+# PII SCRUBBER — dùng trước khi gửi LLM API
+# ─────────────────────────────────────────────────────────────────
+
+# Số điện thoại Việt Nam: 0[3-9]xxxxxxxx (10 số)
+_VN_PHONE_RE = re.compile(
+    r"(?<![\d])0[3-9]\d{8}(?![\d])"
+)
+
+# CCCD 9 số hoặc 12 số (căn cước công dân / CMND)
+_VN_ID_RE = re.compile(
+    r"(?<![\d])(?:\d{9}|\d{12})(?![\d])"
+)
+
+# Email pattern cơ bản
+_EMAIL_RE = re.compile(
+    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
+)
+
+
+def scrub_pii_for_llm(text: str) -> str:
+    """
+    Mask các PII nhạy cảm trước khi đưa vào LLM context/prompt.
+    - Số điện thoại VN → [SĐT ẨN]
+    - CCCD/CMND     → [CCCD ẨN]
+    - Email         → [EMAIL ẨN]
+    Text không thay đổi về cấu trúc, chỉ mask giá trị nhạy cảm.
+    """
+    text = _VN_PHONE_RE.sub("[SĐT ẨN]", text)
+    text = _VN_ID_RE.sub("[CCCD ẨN]", text)
+    text = _EMAIL_RE.sub("[EMAIL ẨN]", text)
+    return text
+
+
+# ─────────────────────────────────────────────────────────────────
 # API KEY
 # ─────────────────────────────────────────────────────────────────
 
