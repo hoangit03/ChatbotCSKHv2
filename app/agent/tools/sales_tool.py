@@ -257,6 +257,7 @@ class ConsultationTool(AgentTool):
         }
 
     async def run(self, state: AgentState) -> ToolResult:
+        import re
         kwargs = state.get("tool_kwargs", {}).get(self.name, {})
         
         # Lấy thông tin ưu tiên từ LLM trích xuất (kwargs), fallback về state
@@ -264,6 +265,19 @@ class ConsultationTool(AgentTool):
         phone = kwargs.get("customer_phone") or state.get("customer_phone")
         email = kwargs.get("email")
         address = kwargs.get("address")
+
+        # ── Normalize & Validate phone ─────────────────────────────
+        if phone:
+            # Normalize: xóa khoảng trắng, gạch ngang, dấu chấm, ngoặc
+            phone_clean = re.sub(r"[\s\-\.\(\)]+", "", str(phone))
+            # Chuẩn hóa +84 → 0
+            phone_clean = re.sub(r"^\+84", "0", phone_clean)
+            # Validate: 10 chữ số, bắt đầu bằng 0[3-9]
+            if re.fullmatch(r"0[3-9]\d{8}", phone_clean):
+                phone = phone_clean
+            else:
+                log.warning("consultation_invalid_phone", raw=str(phone)[:20], session=state.get("session_id"))
+                phone = None  # Coi như chưa có → trigger slot filling
 
         p_id = _project_id(state)
         p_name = _project_name(state)
@@ -278,7 +292,7 @@ class ConsultationTool(AgentTool):
 
         missing = []
         if not name: missing.append("họ và tên")
-        if not phone: missing.append("số điện thoại")
+        if not phone: missing.append("số điện thoại hợp lệ (10 số, bắt đầu 0[3-9])")
         if not p_id or not p_name or p_name == "unknown":
             missing.append("dự án quan tâm")
 
@@ -304,6 +318,7 @@ class ConsultationTool(AgentTool):
             return ToolResult(success=True, data=result, summary=result.message)
         except SalesAPIError as e:
             return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
+
 
 
 # ── Tool 5: Project List ──────────────────────────────────────────

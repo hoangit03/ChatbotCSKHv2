@@ -38,6 +38,8 @@ _PUBLIC = frozenset({
     "/docs",
     "/redoc",
     "/openapi.json",
+    "/api/v1/chat",
+    "/api/v1/chat/stream",
 })
 
 

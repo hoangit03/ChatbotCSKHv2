@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware.auth import APIKeyMiddleware, APIKeyStore
-from app.api.v1.endpoints import chat, health, project
+from app.api.v1.endpoints import chat, health, project, sale_chat
 from app.core.config.settings import get_settings
 from app.shared.errors.exceptions import AppError
 from app.shared.logging.logger import get_logger, setup_logging
@@ -265,7 +265,8 @@ async def auth_middleware(request: Request, call_next):
 
 API_V1 = "/api/v1"
 app.include_router(health.router)                               # /health
-app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat
+app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat (Luồng A — Public)
+app.include_router(sale_chat.router,  prefix=API_V1)           # /api/v1/sale/chat (Luồng B — X-API-Key)
 app.include_router(project.router,    prefix=API_V1)           # /api/v1/projects
 
 

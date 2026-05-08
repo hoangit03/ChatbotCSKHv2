@@ -140,9 +140,45 @@ class SynthesizerNode:
         self._llm = llm
 
     async def __call__(self, state: AgentState) -> AgentState:
+        # ── Human Handover Detection ─────────────────────────────
+        _HANDOVER_PATTERNS = [
+            "nói chuyện với người thật", "gặp nhân viên", "gặp người thật",
+            "chuyển cho nhân viên", "muốn gặp sale", "cần support",
+            "gặp tư vấn viên", "kết nối với nhân viên", "live agent", "human agent",
+        ]
+        query_lower = state.get("raw_query", "").lower()
+        if any(kw in query_lower for kw in _HANDOVER_PATTERNS):
+            state["human_handover_requested"] = True
+            state["final_answer"] = (
+                "Dạ, em hiểu anh/chị muốn được hỗ trợ trực tiếp từ chuyên viên. "
+                "Em sẽ chuyển thông tin đến đội ngũ sale ngay bây giọ. "
+                "Anh/chị vui lòng để lại số điện thoại để chuyên viên liên hệ lại trong vòng 5 phút nhé."
+            )
+            state["suggested_questions"] = [
+                "Tôi muốn để lại số điện thoại để được gọi lại",
+                "Dự án nào đang mở bán?",
+            ]
+            log.info("human_handover_triggered", session=state.get("session_id"))
+            return state
+
+        # Đã có final_answer từ trước (vd: project_guard chặn, booking slot filling)
         if state.get("final_answer"):
             log.info("synthesizer_skip_already_answered", session=state.get("session_id"))
+            # Generate suggested_questions dựa trên context dự án thành có
             if not state.get("suggested_questions"):
+                available_info = state.get("sales_data", {}).get("project_list", [])
+                if available_info:
+                    proj_names = [p.get("name", "") for p in available_info[:3]]
+                    state["suggested_questions"] = [
+                        f"Dự án {proj_names[0]} có những loại căn nào?" if proj_names else "Các dự án hiện có?",
+                        "Chính sách thanh toán như thế nào?",
+                    ]
+                else:
+                    p_name = state.get("project_name") or ""
+                    state["suggested_questions"] = [
+                        f"Dự án {p_name} có những loại căn nào?" if p_name else "Hiện có những dự án nào?",
+                        "Chính sách bán hàng như thế nào?",
+                    ]
                 state["suggested_questions"] = []
                 
             if state.get("stream_queue"):

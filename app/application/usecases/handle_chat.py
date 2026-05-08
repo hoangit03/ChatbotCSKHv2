@@ -98,11 +98,16 @@ class HandleChatUseCase:
         )
 
         # ── Khởi tạo state ────────────────────────────────────────
+        # Xác định user_type từ role_level header
+        # role_level "1" = khách hàng, > "1" = nội bộ sale
+        _role = req.role_level or "1"
+        user_type = "sale" if _role.isdigit() and int(_role) > 1 else "customer"
+
         state = make_initial_state(
             session_id=session_id,
             raw_query=req.message,
             project_name=req.project_name,
-            min_role_level=int(req.role_level) if req.role_level else None,
+            user_type=user_type,
         )
 
         # Load history và context nếu có
@@ -111,18 +116,31 @@ class HandleChatUseCase:
             history = await self._history.get_history(session_id, limit=20)
             state["messages"] = history
             
-            # 2. Load persistent context (project_name)
+            # 2. Load persistent context (project_name + customer journey)
             ctx = await self._history.get_context(session_id)
             cached_project = ctx.get("project_name")
             
             # Ưu tiên project truyền từ request (nếu có và hợp lệ)
-            # Nếu request rỗng/default -> dùng project từ cache
             if not req.project_name or req.project_name.lower() in ["", "string", "none"]:
                 state["project_name"] = cached_project
             else:
                 state["project_name"] = req.project_name
-                
-            log.debug("chat_session_loaded", session=session_id, history=len(history), project=state["project_name"])
+
+            # 3. Restore customer journey state (fix stage/USP reset bug)
+            if ctx.get("customer_stage"):
+                state["customer_stage"] = ctx["customer_stage"]
+            if ctx.get("usps_used"):
+                state["usps_used"] = ctx["usps_used"]
+            if ctx.get("appointment_booked"):
+                state["appointment_booked"] = ctx["appointment_booked"]
+
+            log.debug(
+                "chat_session_loaded",
+                session=session_id,
+                history=len(history),
+                project=state["project_name"],
+                stage=state.get("customer_stage"),
+            )
 
         # Gắn thêm thông tin khách hàng nếu có (dùng cho booking)
         if req.customer_name or req.customer_phone:
@@ -170,13 +188,21 @@ class HandleChatUseCase:
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
-            # Đồng bộ sang Postgres
             asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
             asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
             
-            # Lưu lại project_name thực tế sau khi agent xử lý (có thể agent đã detect được project mới)
+            # Persist toàn bộ context sau mỗi request (fix stage/USP reset)
+            ctx_to_save: dict = {}
             if response.project_name:
-                await self._history.set_context(session_id, {"project_name": response.project_name})
+                ctx_to_save["project_name"] = response.project_name
+            if final_state.get("customer_stage"):
+                ctx_to_save["customer_stage"] = final_state["customer_stage"]
+            if final_state.get("usps_used"):
+                ctx_to_save["usps_used"] = final_state["usps_used"]
+            if final_state.get("appointment_booked"):
+                ctx_to_save["appointment_booked"] = final_state["appointment_booked"]
+            if ctx_to_save:
+                await self._history.set_context(session_id, ctx_to_save)
 
         # Ghi user activity audit log
         if self._activity_log:
@@ -214,11 +240,14 @@ class HandleChatUseCase:
         )
 
         queue = asyncio.Queue()
+        _role = req.role_level or "1"
+        user_type = "sale" if _role.isdigit() and int(_role) > 1 else "customer"
+
         state = make_initial_state(
             session_id=session_id,
             raw_query=req.message,
             project_name=req.project_name,
-            min_role_level=int(req.role_level) if req.role_level else None,
+            user_type=user_type,
         )
         state["stream_queue"] = queue
 
@@ -232,6 +261,13 @@ class HandleChatUseCase:
                 state["project_name"] = cached_project
             else:
                 state["project_name"] = req.project_name
+            # Restore customer journey state (stream mode)
+            if ctx.get("customer_stage"):
+                state["customer_stage"] = ctx["customer_stage"]
+            if ctx.get("usps_used"):
+                state["usps_used"] = ctx["usps_used"]
+            if ctx.get("appointment_booked"):
+                state["appointment_booked"] = ctx["appointment_booked"]
 
         if req.customer_name or req.customer_phone:
             state["sales_data"] = {
@@ -298,15 +334,24 @@ class HandleChatUseCase:
             sales_data=final_state.get("sales_data", {}),
         )
 
-        # Save history
+        # Save history (stream mode)
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
             asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
             asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
-            
+
+            ctx_to_save: dict = {}
             if response.project_name:
-                await self._history.set_context(session_id, {"project_name": response.project_name})
+                ctx_to_save["project_name"] = response.project_name
+            if final_state.get("customer_stage"):
+                ctx_to_save["customer_stage"] = final_state["customer_stage"]
+            if final_state.get("usps_used"):
+                ctx_to_save["usps_used"] = final_state["usps_used"]
+            if final_state.get("appointment_booked"):
+                ctx_to_save["appointment_booked"] = final_state["appointment_booked"]
+            if ctx_to_save:
+                await self._history.set_context(session_id, ctx_to_save)
 
         # Send raw sources/tool calls at the end
         metadata_chunk = {
