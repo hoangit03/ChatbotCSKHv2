@@ -143,9 +143,13 @@ class AgentState(TypedDict):
     messages: list
     session_id: str
     project_name: Optional[str]
+    project_id: Optional[str]           # ID dự án (từ Sales API)
     intent: Any                  # Intent enum
     raw_query: str
     was_injected: bool
+
+    # ── Access Control ─────
+    user_type: str              # "customer" (Luồng A) | "sale" (Luồng B)
 
     # ── RAG / QA ────
     rag_results: list
@@ -179,7 +183,8 @@ class AgentState(TypedDict):
     booking_confirmation: bool          # Khách đã confirm booking chưa
     price_disclosed: bool               # Giá đã được cho phép tiết lộ chưa
     suggested_questions: list           # 3 câu hỏi gợi ý tiếp theo (generate bởi Synthesizer)
-    stream_queue: Optional[Any]         # [NEW] Dùng để stream tokens từ Synthesizer ra API
+    stream_queue: Optional[Any]         # Dùng để stream tokens từ Synthesizer ra API
+    human_handover_requested: bool      # Khách yêu cầu chuyển sang nhân viên thực
 
 
 # ── Factory ────────────────────────────────────────────────────────
@@ -194,16 +199,23 @@ def make_initial_state(
     customer_stage: str = CustomerStage.AWARENESS,
     usps_used: list | None = None,
     appointment_booked: bool = False,
-    min_role_level: int | None = None,
+    user_type: str = "customer",
+    min_role_level: int | None = None,  # deprecated — dùng user_type thay thế
 ) -> AgentState:
+    # Backward compat: nếu min_role_level > 1 thì là sale
+    if min_role_level is not None and min_role_level > 1:
+        user_type = "sale"
     return AgentState(
         # Core
         messages=[],
         session_id=session_id,
         project_name=project_name,
+        project_id=project_id,
         intent=Intent.UNKNOWN,
         raw_query=raw_query,
         was_injected=False,
+        # Access Control
+        user_type=user_type,
         # RAG / QA
         rag_results=[],
         qa_result=None,
@@ -232,4 +244,5 @@ def make_initial_state(
         price_disclosed=False,
         suggested_questions=[],
         stream_queue=None,
+        human_handover_requested=False,
     )

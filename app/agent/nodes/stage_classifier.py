@@ -92,8 +92,14 @@ _DECISION_PATTERNS = [
 
 
 def _normalize(text: str) -> str:
-    """Lowercase, loại bỏ dấu câu thừa để regex dễ match."""
-    return text.lower().strip()
+    """Lowercase, loại bỏ dấu câu thừa, chuẩn hóa tiếng Việt không dấu để regex dễ match."""
+    import unicodedata
+    text = text.lower().strip()
+    # Giữ nguyên tiếng Việt có dấu (chính xác hơn)
+    # Nhưng thêm phương án fallback không dấu để phủ cả hai
+    normalized = unicodedata.normalize('NFD', text)
+    ascii_form = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    return text + " " + ascii_form  # combine cả hai dạng để regex match được cả hai
 
 
 def _check_patterns(text: str, patterns: list[str]) -> list[str]:
@@ -123,8 +129,9 @@ def detect_stage_from_messages(
     signals: list[str] = []
 
     # Combine query + recent messages để check
+    # Sử dụng 6 messages gần nhất (nhất quán với intent_classifier)
     recent_content = current_query
-    for msg in messages[-4:]:
+    for msg in messages[-6:]:
         content = msg.get("content", "")
         if content:
             recent_content += " " + content

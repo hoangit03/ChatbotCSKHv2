@@ -23,20 +23,18 @@ from app.shared.logging.logger import get_logger
 log = get_logger(__name__)
 
 
-
-# ── Keywords bypass — cho phép đi qua khi hỏi về danh sách dự án ──
+# Nếu quá rộng (vd: "bất động sản"), khách hàng sẽ vào sales_node mà không có project context.
 _PROJECT_LISTING_KEYWORDS = [
     "bao nhiêu dự án", "danh sách dự án", "kể tên dự án",
-    "có những dự án nào", "dự án hiện tại", "liệt kê dự án",
-    "show me projects", "dự án nào đang", "dự án gì", "các dự án",
-    "tất cả dự án", "mấy dự án", "bất động sản", "dự án nào phù hợp",
-    "gợi ý dự án", "tìm dự án", "giới thiệu dự án", "dự án nào"
+    "có những dự án nào", "liệt kê dự án", "liệt kê tất cả dự án",
+    "show me projects", "tất cả dự án", "các dự án hiện có",
 ]
 
 # ── Keywords gợi ý khách đang chuyển/nhắc tên dự án khác ──
+# Chỉ giữ những hint cực kỳ cụ thể về chuyển ngữ cảnh dự án.
 _PROJECT_SWITCH_HINTS = [
-    "dự án", "tìm hiểu về", "chuyển sang", "hỏi về",
-    "quan tâm", "muốn xem", "thông tin",
+    "chuyển sang dự án", "hỏi về dự án", "tìm hiểu dự án",
+    "xem dự án",
 ]
 
 async def _get_available_projects(registry: ToolRegistry) -> list[dict]:

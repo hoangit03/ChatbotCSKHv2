@@ -70,6 +70,7 @@ class SalesNode:
         query = state["raw_query"]
         intent = state.get("intent", Intent.SALES_INQUIRY)
         stage  = CustomerStage(state.get("customer_stage", CustomerStage.AWARENESS))
+        user_type = state.get("user_type", "customer")  # "customer" | "sale"
 
         if not isinstance(state.get("sales_data"), dict):
             state["sales_data"] = {}
@@ -84,29 +85,53 @@ class SalesNode:
         # ── 1. Inject USP theo stage vào context ─────────────────
         self._inject_usps(state, stage)
 
-        # ── 2. RAG + QA luôn chạy để lấy thông tin chung ─────────
-        await self._run_doc_tools(state)
+        # ── 2. Precompute query embedding (reuse giữa QATool và RAGTool) ─────────────────────────
+        # Chỉ precompute khi cần doc tools (không phải Consultation)
+        if intent != Intent.CONSULTATION_INTENT and not state.get("query_embedding"):
+            try:
+                rag_tool = self._registry.get("rag_search")
+                if rag_tool and hasattr(rag_tool, "_embedder"):
+                    state["query_embedding"] = await rag_tool._embedder.embed_one(query)
+            except Exception as emb_err:
+                log.debug("sales_node_preembed_skip", reason=str(emb_err))
 
-        # ── 3. Xử lý đặc biệt cho Comparison Intent ──────────────
+        # ── 3. RAG + QA — Bỏ qua nếu là Consultation Intent ─────────────────────────
+        if intent != Intent.CONSULTATION_INTENT:
+            await self._run_doc_tools(state)
+
+        # ── 4. Xử lý đặc biệt cho Comparison Intent ──────────────
         # Comparison → force stage lên DECISION, load thêm USP pháp lý
         if intent == Intent.COMPARISON_INTENT:
             state["customer_stage"] = CustomerStage.DECISION
             stage = CustomerStage.DECISION
             self._inject_usps(state, stage)  # Re-inject với stage mới
             log.info("comparison_intent_stage_upgraded", session=state.get("session_id"))
- 
-        # ── 4. (Đã gỡ bỏ: Xử lý đặc biệt cho Consultation Intent vì làm mất arguments) ─────────────
 
         # ── 5. Gọi LLM để quyết định gọi tool hay trả lời trực tiếp ──
         stage_guidance = _STAGE_TOOL_GUIDANCE.get(stage, "")
-        system_prompt = _BASE_SALES_PROMPT + stage_guidance
+
+        # Xây dựng danh sách tools phù hợp theo user_type
+        # Khách hàng (Luồng A): chỉ có register_consultation và list_projects
+        # Sale (Luồng B): đầy đủ tools bao gồm cả bảng hàng
+        if user_type == "customer":
+            allowed_tools = ["register_consultation", "list_projects"]
+            tools_schemas = self._registry.generate_schemas(allowed_tools)
+            sale_only_note = (
+                "\nLƯU Ý: Đây là kênh tư vấn khách hàng. TUYỆT ĐỐI KHÔNG gọi các tool: "
+                "check_availability, get_inventory, search_units. "
+                "Nếu khách hỏi giá hoặc tồn kho cụ thể, mời đăng ký tư vấn để được hỗ trợ trực tiếp."
+            )
+            system_prompt = _BASE_SALES_PROMPT + stage_guidance + sale_only_note
+        else:
+            tools_schemas = self._registry.generate_schemas()
+            system_prompt = _BASE_SALES_PROMPT + stage_guidance
  
         try:
             resp = await self._llm.chat(
                 messages=[LLMMessage(role="user", content=query)],
                 system=system_prompt,
                 temperature=0.0,
-                tools=self._registry.generate_schemas(),
+                tools=tools_schemas,
             )
  
             tool_calls = resp.tool_calls or []
@@ -115,18 +140,22 @@ class SalesNode:
             if not tool_calls and intent == Intent.CONSULTATION_INTENT:
                 tool_calls = [{"name": "register_consultation", "arguments": {}}]
 
-            new_tool_calls = []
-            
-            # [NEW] Price Guard: Giai đoạn 1 không tiết lộ giá chi tiết
+            # Price Guard: Giai đoạn 1 không tiết lộ giá chi tiết
             if stage == CustomerStage.AWARENESS:
                 state["sales_data"]["price_disclosure_blocked"] = True
+
+            # Bảo vệ thêm: lọc bỏ tool call trái phép cho customer (defense-in-depth)
+            if user_type == "customer":
+                restricted = {"check_availability", "get_inventory", "search_units"}
+                tool_calls = [tc for tc in tool_calls if tc.get("name") not in restricted]
+                if not tool_calls and intent == Intent.CONSULTATION_INTENT:
+                    tool_calls = [{"name": "register_consultation", "arguments": {}}]
 
             # Chạy song song — tối ưu tốc độ
             tasks = []
             for tc in tool_calls:
                 tool_name = tc.get("name")
                 args = tc.get("arguments", {})
-                
                 state["tool_kwargs"][tool_name] = args
                 tasks.append(self._run_tool_returning_call(tool_name, state))
                 
@@ -146,10 +175,11 @@ class SalesNode:
                     "Dạ, anh/chị vui lòng cho em xin số điện thoại "
                     "để chuyên viên hỗ trợ tư vấn cho mình nhé."
                 )
-            else:
+            elif user_type == "sale":  # chỉ fallback inventory cho sale
                 await self._run_tool("get_inventory", state)
  
         return state
+
 
     def _inject_usps(self, state: AgentState, stage: CustomerStage) -> None:
         """
@@ -189,7 +219,7 @@ class SalesNode:
  
 
     async def _run_doc_tools(self, state: AgentState) -> None:
-        qa_tool = self._registry.get("qa_lookup")
+        qa_tool  = self._registry.get("qa_lookup")
         rag_tool = self._registry.get("rag_search")
 
         tasks = []
