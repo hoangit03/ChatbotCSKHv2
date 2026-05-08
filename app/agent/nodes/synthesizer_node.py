@@ -265,10 +265,8 @@ class SynthesizerNode:
                     except Exception:
                         return []
                 
-                sug_task = asyncio.create_task(_gen_suggestions())
-                
                 # Đổi prompt để LLM chỉ trả lời văn bản thuần (tránh xuất json)
-                system_msg_stream = system_msg.replace("Trả về JSON với 2 trường sau", "TUYỆT ĐỐI KHÔNG TRẢ VỀ JSON. Trả lời bằng văn bản thuần túy.")
+                system_msg_stream = system_msg.split("ĐỊNH DẠNG ĐẦU RA")[0] + "ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC:\nTUYỆT ĐỐI KHÔNG TRẢ VỀ JSON. Trả lời bằng văn bản thuần túy."
                 
                 answer_chunks = []
                 try:
@@ -280,10 +278,12 @@ class SynthesizerNode:
                         await queue.put({"type": "token", "content": token})
                     
                     state["final_answer"] = "".join(answer_chunks)
-                    # Chờ lấy gợi ý
-                    suggested = await sug_task
+                    
+                    # Lấy gợi ý SAU KHI đã stream xong câu trả lời để tránh kẹt hàng đợi LLM
+                    suggested = await _gen_suggestions()
                     state["suggested_questions"] = suggested
-                    await queue.put({"type": "suggestions", "content": suggested})
+                    if suggested:
+                        await queue.put({"type": "suggestions", "content": suggested})
                     
                 except asyncio.TimeoutError:
                     log.error("synthesizer_stream_timeout", session=state.get("session_id"))
