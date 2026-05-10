@@ -295,6 +295,26 @@ class HandleChatUseCase:
 
         # Run graph in background task
         graph_task = asyncio.create_task(self._graph.ainvoke(state))
+        
+        def _on_graph_done(task: asyncio.Task):
+            try:
+                # Nếu task lỗi, put thông báo lỗi
+                if task.exception():
+                    log.error("graph_task_exception_in_stream", error=str(task.exception()))
+                    try:
+                        queue.put_nowait({"type": "token", "content": "Dạ hệ thống đang quá tải, anh/chị vui lòng đợi một chút rồi thử lại nhé."})
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                pass
+            finally:
+                # Luôn đảm bảo có tín hiệu done
+                try:
+                    queue.put_nowait({"type": "done"})
+                except Exception:
+                    pass
+
+        graph_task.add_done_callback(_on_graph_done)
 
         # Stream from queue
         while True:
@@ -302,19 +322,27 @@ class HandleChatUseCase:
             if chunk["type"] == "done":
                 break
             elif chunk["type"] == "filler_token":
-                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'text': chunk['content']})}\n\n"
             elif chunk["type"] == "token":
                 state["real_token_emitted"] = True
-                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'text': chunk['content']})}\n\n"
             elif chunk["type"] == "suggestions":
-                yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'suggested_questions': chunk['content']})}\n\n"
         
         # Hủy task mồi nếu nó vẫn đang chạy
         if not filler_bg.done():
             filler_bg.cancel()
 
-        # Wait for graph to finish completely
-        final_state = await graph_task
+        # Wait for graph to finish completely (handle exceptions)
+        try:
+            final_state = await graph_task
+        except Exception as e:
+            log.error("graph_task_failed_await", error=str(e))
+            final_state = state  # Fallback to initial state
+            final_state["final_answer"] = "Dạ hệ thống đang quá tải, anh/chị vui lòng đợi một chút rồi thử lại nhé."
+            final_state["fallback"] = True
+            final_state["fallback_reason"] = str(e)
+
         
         # Map response
         raw_intent = final_state.get("intent", "unknown")

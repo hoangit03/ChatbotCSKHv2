@@ -39,6 +39,16 @@ services:
       options:
         max-size: 50m
         max-file: '5'
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cskh_frontend
+    restart: unless-stopped
+    ports:
+    - 8009:80
+    networks:
+    - global_proxy_network
 
 volumes:
   doc_storage:

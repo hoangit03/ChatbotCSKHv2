@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CT Group - AI Platform</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css?v=5">
+    <!-- Marked.js cho việc render Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen">
+        <div class="login-container glass-panel">
+            <div class="login-header">
+                <div class="logo-icon"><i class="fa-solid fa-cube"></i></div>
+                <h1>CT Group AI</h1>
+                <p>Nền tảng trí tuệ nhân tạo tập trung</p>
+            </div>
+            <form id="login-form">
+                <div class="input-group">
+                    <i class="fa-solid fa-envelope"></i>
+                    <input type="email" id="email" placeholder="Email đăng nhập" required>
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="password" placeholder="Mật khẩu" required>
+                </div>
+                <button type="submit" class="btn-primary" id="login-btn">
+                    <span class="btn-text">Đăng nhập</span>
+                    <span class="loader hidden"></span>
+                </button>
+                <div id="login-error" class="error-msg hidden">Sai email hoặc mật khẩu!</div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main App Screen -->
+    <div id="app-screen" class="screen hidden">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-header">
+                <div class="logo-icon small"><i class="fa-solid fa-cube"></i></div>
+                <h2>CT AI Platform</h2>
+            </div>
+            
+            <div class="user-profile">
+                <div class="avatar"><i class="fa-solid fa-user"></i></div>
+                <div class="user-info">
+                    <h3 id="user-fullname">Loading...</h3>
+                    <p id="user-email">...</p>
+                </div>
+            </div>
+            
+            <div class="domain-selector">
+                <label>🌐 Domain / Project</label>
+                <select id="tenant-select" class="glass-select"></select>
+                <div id="role-info" class="role-badge">Role: ...</div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="chat">
+                    <i class="fa-solid fa-comments"></i> <span>Chat AI</span>
+                </a>
+                <a href="#" class="nav-item" data-page="etl" id="nav-etl" style="display: none;">
+                    <i class="fa-solid fa-file-arrow-up"></i> <span>Quản lý Dữ liệu (ETL)</span>
+                </a>
+                <a href="#" class="nav-item" data-page="admin" id="nav-admin" style="display: none;">
+                    <i class="fa-solid fa-gear"></i> <span>Quản trị Hệ thống</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="logout-btn" class="btn-secondary">
+                    <i class="fa-solid fa-right-from-bracket"></i> Đăng xuất
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="page-container" class="glass-panel">
+                <!-- Pages will be injected here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Page Templates -->
+    <template id="tpl-chat">
+        <div class="chat-page">
+            <div class="page-header">
+                <h2><i class="fa-solid fa-comments"></i> Trợ lý AI - <span class="tenant-name"></span></h2>
+                <div class="chat-filters" style="display: flex; gap: 15px; margin-top: 10px;">
+                    <select id="chat-role-select" class="glass-select" style="padding: 8px 12px; border-radius: 6px;">
+                        <option value="user">Khách hàng (User)</option>
+                        <option value="sale">Nhân viên Sale (Sale)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="chat-container">
+                <div id="chat-messages" class="messages-list">
+                    <!-- Messages go here -->
+                </div>
+                <div class="chat-input-area">
+                    <form id="chat-form">
+                        <textarea id="chat-input" placeholder="Nhập câu hỏi của bạn (Enter để gửi, Shift+Enter để xuống dòng)..." rows="1"></textarea>
+                        <button type="submit" class="btn-send"><i class="fa-solid fa-paper-plane"></i></button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-etl">
+        <div class="etl-page">
+            <div class="page-header">
+                <h2><i class="fa-solid fa-file-arrow-up"></i> Tải lên Dữ liệu - <span class="tenant-name"></span></h2>
+                <p>Chỉ áp dụng cho Giám đốc (Cấp D). File sẽ được AI học hỏi ngay lập tức.</p>
+            </div>
+            <div class="etl-container">
+                <form id="etl-form" class="upload-zone">
+                    <div class="upload-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                    <h3>Kéo thả file vào đây hoặc Click để chọn</h3>
+                    <p class="text-muted">Hỗ trợ: PDF, Word, Excel</p>
+                    <input type="file" id="file-upload" multiple accept=".pdf,.doc,.docx,.xls,.xlsx" required>
+                    
+                    <div class="security-level-select">
+                        <label>🔒 Mức độ bảo mật của tài liệu:</label>
+                        <select id="doc-security-level" class="glass-select">
+                            <option value="1">E - Employee (Ai cũng xem được)</option>
+                            <option value="2">C - Chief (Trưởng phòng trở lên)</option>
+                            <option value="3">M - Manager (Quản lý trở lên)</option>
+                            <option value="4">D - Director (Chỉ Giám đốc)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="project-name-select" style="margin-top: 15px; margin-bottom: 20px; text-align: left;">
+                        <label>🏢 Chọn dự án (Bắt buộc):</label>
+                        <select id="etl-project-input" class="glass-select" style="width: 100%; padding: 10px; margin-top: 5px; border-radius: 8px;" required>
+                            <option value="">-- Đang tải danh sách dự án... --</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary" id="upload-btn">Bắt đầu xử lý</button>
+                    <div id="upload-status"></div>
+                </form>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-admin">
+        <div class="admin-page">
+            <div class="page-header">
+                <h2><i class="fa-solid fa-gear"></i> Quản trị Hệ thống</h2>
+            </div>
+            <div class="admin-tabs">
+                <button class="tab-btn active" data-tab="users">Người dùng</button>
+                <button class="tab-btn" data-tab="sessions">Phiên Chat</button>
+            </div>
+            <div class="tab-content active" id="tab-users">
+                <div class="table-responsive">
+                    <table class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Họ Tên</th>
+                                <th>Quyền hạn</th>
+                                <th>Trạng thái</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <!-- Users injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="tab-content" id="tab-sessions">
+                <div class="table-responsive">
+                    <table class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>Email</th>
+                                <th>Số tin nhắn</th>
+                                <th>Thời gian</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessions-tbody">
+                            <!-- Sessions injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Modal xem chi tiết Session -->
+            <div id="session-modal" class="modal hidden">
+                <div class="modal-content glass-panel">
+                    <div class="modal-header">
+                        <h3 id="session-modal-title">Lịch sử Chat</h3>
+                        <button class="close-btn" id="close-session-modal"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="modal-body chat-container" style="height: 400px; padding: 10px; margin-top: 15px;">
+                        <div id="session-messages-list" class="messages-list">
+                            <!-- Tin nhắn sẽ được load vào đây -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="/js/api.js?v=7"></script>
+    <script src="/js/app.js?v=7"></script>
+</body>
+</html>

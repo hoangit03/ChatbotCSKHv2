@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  portal_ui:
+    build: .
+    env_file:
+      - .env
+    container_name: global_portal
+    restart: unless-stopped
+    networks:
+    - global_proxy_network
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '5'
+networks:
+  global_proxy_network:
+    external: true

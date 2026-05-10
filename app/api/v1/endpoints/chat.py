@@ -97,17 +97,20 @@ async def chat(
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
     x_role_level: Optional[str] = Header("1"),
-    x_session_id: Optional[str] = Header(None)
+    x_session_id: Optional[str] = Header(None),
+    x_project_name: Optional[str] = Header(None)
 ) -> ChatOut:
     uc: HandleChatUseCase = request.app.state.handle_chat_uc
     
     # Ưu tiên session_id từ Header (do Gateway proxy xuống)
     final_session_id = x_session_id or body.session_id
 
+    final_project_name = x_project_name or body.project_name
+
     chat_req = ChatRequest(
         message=body.message,
         session_id=final_session_id,
-        project_name=body.project_name,
+        project_name=final_project_name,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         user_id=x_user_id,
@@ -170,16 +173,19 @@ async def chat_stream(
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
     x_role_level: Optional[str] = Header("1"),
-    x_session_id: Optional[str] = Header(None)
+    x_session_id: Optional[str] = Header(None),
+    x_project_name: Optional[str] = Header(None)
 ):
     uc: HandleChatUseCase = request.app.state.handle_chat_uc
     
     final_session_id = x_session_id or body.session_id
 
+    final_project_name = x_project_name or body.project_name
+
     chat_req = ChatRequest(
         message=body.message,
         session_id=final_session_id,
-        project_name=body.project_name,
+        project_name=final_project_name,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         user_id=x_user_id,
@@ -191,3 +197,15 @@ async def chat_stream(
         uc.execute_stream(chat_req),
         media_type="text/event-stream"
     )
+
+@router.get("/projects", summary="Lấy danh sách dự án (Mock)")
+async def get_projects():
+    return {
+        "status": "success",
+        "data": [
+            {"id": "metro-star", "name": "METRO STAR"},
+            {"id": "leman", "name": "LÉMAN"},
+            {"id": "ct-plaza", "name": "CT PLAZA"},
+            {"id": "i-tower", "name": "I-TOWER"}
+        ]
+    }

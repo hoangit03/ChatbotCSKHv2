@@ -161,7 +161,12 @@ class SynthesizerNode:
             log.info("human_handover_triggered", session=state.get("session_id"))
             return state
 
-        # Đã có final_answer từ trước (vd: project_guard chặn, booking slot filling)
+        # ── Đã có final_answer từ trước hoặc Fallback cứng ──
+        if state.get("fallback") and state.get("project_name") and not state.get("rag_results") and not state.get("sales_data"):
+            log.info("synthesizer_fallback_early_return", session=state.get("session_id"))
+            state["final_answer"] = "Tôi chưa có thông tin chi tiết về dự án này bạn ạ."
+            state["suggested_questions"] = ["Dự án nào đang mở bán?", "Tôi cần hỗ trợ thêm từ Sale"]
+            
         if state.get("final_answer"):
             log.info("synthesizer_skip_already_answered", session=state.get("session_id"))
             # Generate suggested_questions dựa trên context dự án thành có
@@ -360,6 +365,14 @@ class SynthesizerNode:
             state["suggested_questions"] = []
             state["fallback"] = True
             state["error"] = str(e)
+            
+            if state.get("stream_queue"):
+                try:
+                    queue = state["stream_queue"]
+                    queue.put_nowait({"type": "token", "content": FALLBACK_MESSAGE})
+                    queue.put_nowait({"type": "done"})
+                except Exception:
+                    pass
 
         return state
 
