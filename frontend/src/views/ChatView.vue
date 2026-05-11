@@ -153,40 +153,47 @@ const sendMessage = async () => {
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
 
+    let buffer = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop(); // Keep the incomplete part in the buffer
       
-      for (let line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6).trim();
-          if (dataStr === '[DONE]') break;
-          try {
-            const data = JSON.parse(dataStr);
-            if (data.session_id && !sessionId.value) {
-              sessionId.value = data.session_id;
+      for (let event of events) {
+        const lines = event.split('\n');
+        for (let line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === '[DONE]') continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.session_id && !sessionId.value) {
+                sessionId.value = data.session_id;
+              }
+              if (data.text) {
+                fullText += data.text;
+                messages.value[assistantMsgIndex].content = fullText;
+                scrollToBottom();
+              }
+              if (data.suggested_questions && data.suggested_questions.length > 0) {
+                let sugHtml = '<div class="suggested-questions" style="margin-top: 15px; display: flex; gap: 8px; flex-wrap: wrap;">';
+                data.suggested_questions.forEach(q => {
+                  sugHtml += `<button class="suggestion-btn" onclick="window.dispatchEvent(new CustomEvent('suggest', {detail: '${q.replace(/'/g, "\\'")}'}))">${q}</button>`;
+                });
+                sugHtml += '</div>';
+                messages.value[assistantMsgIndex].content += sugHtml;
+              }
+              if (data.sources && data.sources.length > 0) {
+                const sourcesHtml = `<div style="margin-top:10px; font-size:12px; color:var(--text-secondary)"><i>Nguồn: ${data.sources.map(s => s.doc || 'Tài liệu').join(', ')}</i></div>`;
+                messages.value[assistantMsgIndex].content += sourcesHtml;
+              }
+            } catch(e) {
+              console.error("Lỗi parse JSON chunk:", e, "Data string:", dataStr);
             }
-            if (data.text) {
-              fullText += data.text;
-              messages.value[assistantMsgIndex].content = fullText;
-              scrollToBottom();
-            }
-            if (data.suggested_questions && data.suggested_questions.length > 0) {
-              let sugHtml = '<div class="suggested-questions" style="margin-top: 15px; display: flex; gap: 8px; flex-wrap: wrap;">';
-              data.suggested_questions.forEach(q => {
-                sugHtml += `<button class="suggestion-btn" onclick="window.dispatchEvent(new CustomEvent('suggest', {detail: '${q.replace(/'/g, "\\'")}'}))">${q}</button>`;
-              });
-              sugHtml += '</div>';
-              messages.value[assistantMsgIndex].content += sugHtml;
-            }
-            if (data.sources && data.sources.length > 0) {
-              const sourcesHtml = `<div style="margin-top:10px; font-size:12px; color:var(--text-secondary)"><i>Nguồn: ${data.sources.map(s => s.doc || 'Tài liệu').join(', ')}</i></div>`;
-              messages.value[assistantMsgIndex].content += sourcesHtml;
-            }
-          } catch(e) {}
+          }
         }
       }
     }
