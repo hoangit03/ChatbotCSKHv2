@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Function to create a client with dynamic tenant baseURL
 const getClient = (tenantId) => {
-  const tenant = (tenantId || 'primer-diamond').toLowerCase();
+  const tenant = (tenantId || 'primer-diamond').toLowerCase().replace(/_/g, '-');
   return axios.create({
     baseURL: `/api/${tenant}`,
     headers: {
@@ -25,16 +25,35 @@ export const api = {
     formData.append('project_name', projectName || tenantId);
     formData.append('doc_group', "Tài liệu dự án");
     formData.append('version', "1.0");
+    formData.append('min_role_level', minRoleLevel);
+    formData.append('force_overwrite', forceOverwrite);
     
-    const { data } = await getClient(tenantId).post('/documents/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    return data;
+    // Gọi thẳng vào Nginx proxy /shared_etl/ (chạy port 8010 trên server)
+    try {
+      const { data } = await axios.post('/shared_etl/etl/extract', formData, {
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          'X-Tenant-Id': tenantId,
+          'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
+        }
+      });
+      return data;
+    } catch (error) {
+      const errBody = error.response?.data;
+      if (errBody?.detail?.code === "CONFIRM_OVERWRITE") {
+        throw new Error("CONFIRM_OVERWRITE");
+      }
+      throw new Error(errBody?.detail?.message || errBody?.detail || 'Lỗi upload dữ liệu');
+    }
   },
 
   getETLFiles: async (tenantId) => {
-    // Dummy implementation if there is no get API
-    return { files: [] };
+    const { data } = await axios.get('/shared_etl/etl/files', {
+      headers: {
+        'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
+      }
+    });
+    return data;
   },
 
   // Chat/Sessions 
