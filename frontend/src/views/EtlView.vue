@@ -14,14 +14,13 @@
         </div>
         
         <form @submit.prevent="handleUpload" id="etl-form" class="mt-20">
-          <div v-if="props.tenant === 'primer-diamond'" class="form-group mb-20">
-            <label><i class="fa-solid fa-building"></i> Chọn dự án:</label>
+          <div class="form-group mb-20">
+            <label><i class="fa-solid fa-building"></i> Tên dự án / Chủ đề:</label>
             <div class="custom-select-wrapper mt-5">
-              <select v-model="selectedProject" class="glass-input custom-input" required>
-                <option value="" disabled>-- Chọn dự án --</option>
-                <option v-for="p in projects" :key="p" :value="p">{{ p }}</option>
-              </select>
-              <i class="fa-solid fa-chevron-down select-icon"></i>
+              <input type="text" v-model="selectedProject" list="project-options" class="glass-input custom-input" placeholder="Nhập hoặc chọn tên dự án..." required>
+              <datalist id="project-options">
+                <option v-for="p in projects" :key="p" :value="p"></option>
+              </datalist>
             </div>
           </div>
 
@@ -136,13 +135,11 @@ const userLevel = computed(() => {
 });
 
 const loadProjects = async () => {
-  if (props.tenant === 'primer-diamond') {
-    try {
-      const data = await api.getProjects();
-      projects.value = data.projects || [];
-    } catch (err) {
-      console.error(err);
-    }
+  try {
+    const data = await api.getProjects(props.tenant);
+    projects.value = data.projects || [];
+  } catch (err) {
+    console.error(err);
   }
 };
 
@@ -184,8 +181,8 @@ const handleUpload = async () => {
   const files = fileInput.value.files;
   if (!files.length) return;
   
-  if (props.tenant === 'primer-diamond' && !selectedProject.value) {
-    alert("Vui lòng chọn dự án!");
+  if (!selectedProject.value) {
+    alert("Vui lòng nhập tên dự án!");
     return;
   }
 

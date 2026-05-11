@@ -1,16 +1,20 @@
 import axios from 'axios';
 
-// Gateway to local Nginx which will proxy /api to the backend
-const GATEWAY_URL = '/api/v1';
-
-const apiClient = axios.create({
-  baseURL: GATEWAY_URL,
-});
+// Function to create a client with dynamic tenant baseURL
+const getClient = (tenantId) => {
+  const tenant = (tenantId || 'primer-diamond').toLowerCase();
+  return axios.create({
+    baseURL: `/api/${tenant}`,
+    headers: {
+      'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
+    }
+  });
+};
 
 export const api = {
   // Projects
-  getProjects: async () => {
-    const { data } = await apiClient.get('/projects');
+  getProjects: async (tenantId) => {
+    const { data } = await getClient(tenantId).get('/projects');
     return data;
   },
 
@@ -22,7 +26,7 @@ export const api = {
     formData.append('doc_group', "Tài liệu dự án");
     formData.append('version', "1.0");
     
-    const { data } = await apiClient.post('/documents/upload', formData, {
+    const { data } = await getClient(tenantId).post('/documents/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     return data;
@@ -49,7 +53,7 @@ export const api = {
       session_id: sessionId,
       project_name: tenantId
     };
-    const { data } = await apiClient.post('/chat', payload);
+    const { data } = await getClient(tenantId).post('/chat', payload);
     return data;
   }
 };

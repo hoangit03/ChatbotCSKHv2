@@ -66,7 +66,8 @@ import { marked } from 'marked';
 
 const props = defineProps({
   tenant: { type: String, required: true },
-  role: { type: String, required: true }
+  role: { type: String, required: true },
+  dept: { type: String, default: 'General' }
 });
 
 const chatRole = ref('user');
@@ -136,12 +137,11 @@ const sendMessage = async () => {
       session_id: sessionId.value || "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16))
     };
 
-    const token = api.getToken() || '';
-    const res = await fetch(`/api/v1/${endpoint}`, {
+    const res = await fetch(`/api/${props.tenant.toLowerCase()}/${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
       },
       body: JSON.stringify(payloadBody)
     });
