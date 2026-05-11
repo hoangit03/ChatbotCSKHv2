@@ -275,46 +275,73 @@ class HandleChatUseCase:
                 "customer_phone": req.customer_phone or "",
             }
 
-        # Khởi tạo task báo cáo "Đang kiểm tra" nếu LLM quá chậm (> 3s)
-        state["real_token_emitted"] = False
-        
-        async def filler_task(q: asyncio.Queue, s: dict):
-            await asyncio.sleep(3.0)
-            if not s.get("real_token_emitted"):
+        async def filler_task(q: asyncio.Queue):
+            try:
+                await asyncio.sleep(3.0)
                 filler_text = "Dạ em đang kiểm tra thông tin, anh/chị đợi một chút nhé...\n\n"
                 words = filler_text.split(" ")
                 for i, word in enumerate(words):
-                    if s.get("real_token_emitted"): 
-                        break
-                    # Stream từng từ một cách tự nhiên
                     chunk_text = word + " " if i < len(words) - 1 else word
                     await q.put({"type": "filler_token", "content": chunk_text})
                     await asyncio.sleep(0.15)
+            except asyncio.CancelledError:
+                pass
 
-        filler_bg = asyncio.create_task(filler_task(queue, state))
+        filler_bg = asyncio.create_task(filler_task(queue))
 
         # Run graph in background task
         graph_task = asyncio.create_task(self._graph.ainvoke(state))
 
-        # Stream from queue
-        while True:
-            chunk = await queue.get()
-            if chunk["type"] == "done":
-                break
-            elif chunk["type"] == "filler_token":
-                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
-            elif chunk["type"] == "token":
-                state["real_token_emitted"] = True
-                yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
-            elif chunk["type"] == "suggestions":
-                yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
-        
-        # Hủy task mồi nếu nó vẫn đang chạy
-        if not filler_bg.done():
-            filler_bg.cancel()
+        real_token_emitted = False
+        final_state = None
 
-        # Wait for graph to finish completely
-        final_state = await graph_task
+        try:
+            while True:
+                get_task = asyncio.create_task(queue.get())
+                done, pending = await asyncio.wait(
+                    [get_task, graph_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if get_task in done:
+                    chunk = get_task.result()
+                    if chunk["type"] == "done":
+                        break
+                    elif chunk["type"] == "token":
+                        if not real_token_emitted:
+                            real_token_emitted = True
+                            if not filler_bg.done():
+                                filler_bg.cancel()
+                        yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+                    elif chunk["type"] == "filler_token":
+                        yield f"data: {json.dumps({'text': chunk['content'], 'session_id': session_id})}\n\n"
+                    elif chunk["type"] == "suggestions":
+                        yield f"data: {json.dumps({'suggested_questions': chunk['content'], 'session_id': session_id})}\n\n"
+                else:
+                    get_task.cancel()
+
+                if graph_task in done:
+                    if graph_task.exception():
+                        log.error("graph_stream_crash", error=str(graph_task.exception()))
+                        yield f"data: {json.dumps({'text': 'Hệ thống đang bận, xin vui lòng thử lại sau.', 'session_id': session_id})}\n\n"
+                        break
+                    
+                    if not real_token_emitted:
+                        final_state = graph_task.result()
+                        fallback_answer = final_state.get("final_answer", "")
+                        if fallback_answer:
+                            yield f"data: {json.dumps({'text': fallback_answer, 'session_id': session_id})}\n\n"
+                    break
+
+        finally:
+            if not filler_bg.done():
+                filler_bg.cancel()
+
+        if final_state is None and not graph_task.exception():
+            final_state = await graph_task
+            
+        if final_state is None:
+            final_state = state
         
         # Map response
         raw_intent = final_state.get("intent", "unknown")

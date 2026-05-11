@@ -23,6 +23,9 @@ Nhiệm vụ của bạn là phân tích câu hỏi của khách hàng và gọi
  
 LƯU Ý QUAN TRỌNG VỀ TOOL:
 - Hỏi danh sách dự án / có những dự án nào: gọi `list_projects`.
+  + Nếu khách hỏi "đang mở bán", "đang bán", "hiện có": truyền status_filter="dang_mo_ban".
+  + Nếu khách hỏi "sắp mở bán", "sắp ra mắt": truyền status_filter="sap_mo_ban".
+  + Nếu khách hỏi tất cả dự án không phân biệt: KHÔNG truyền status_filter.
 - Hỏi dự án (cụ thể) còn căn trống không / có bao nhiêu căn: gọi `get_inventory`. TUYỆT ĐỐI KHÔNG gọi `list_projects` nếu khách đang hỏi về một dự án cụ thể.
 - Hỏi một căn cụ thể (VD: căn góc, mã căn T1-04): gọi `check_availability`.
 - Tìm căn theo tiêu chí (giá, số phòng): gọi `search_units`.
@@ -156,8 +159,7 @@ class SalesNode:
             for tc in tool_calls:
                 tool_name = tc.get("name")
                 args = tc.get("arguments", {})
-                state["tool_kwargs"][tool_name] = args
-                tasks.append(self._run_tool_returning_call(tool_name, state))
+                tasks.append(self._run_tool_returning_call(tool_name, state, args))
                 
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for res in results:
@@ -235,15 +237,15 @@ class SalesNode:
                     state["tool_calls"] = []
                 state["tool_calls"].append(call)
 
-    async def _run_tool_returning_call(self, name: str, state: AgentState) -> Any:
+    async def _run_tool_returning_call(self, name: str, state: AgentState, arguments: dict = None) -> Any:
         tool = self._registry.get(name)
         if not tool:
             return None
-        result, call = await tool.execute(state)
+        result, call = await tool.execute(state, tool_kwargs=arguments)
         return call
 
-    async def _run_tool(self, name: str, state: AgentState) -> None:
-        call = await self._run_tool_returning_call(name, state)
+    async def _run_tool(self, name: str, state: AgentState, arguments: dict = None) -> None:
+        call = await self._run_tool_returning_call(name, state, arguments)
         if call is not None:
             if "tool_calls" not in state or state["tool_calls"] is None:
                 state["tool_calls"] = []

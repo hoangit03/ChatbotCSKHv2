@@ -41,7 +41,7 @@ class RAGTool(AgentTool):
             "vị trí, pháp lý, chính sách bán hàng."
         )
 
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
         query = state["raw_query"]
         project = state.get("project_name")
 
