@@ -243,7 +243,7 @@ class QATool(AgentTool):
             "Dùng khi câu hỏi phổ biến về dự án bất động sản."
         )
 
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
         query_vec = state.get("query_embedding")
         results = await self._store.search(
             query=state["raw_query"],

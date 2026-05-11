@@ -22,6 +22,8 @@ from app.core.interfaces.sales_api_port import (
     ConsultationResult,
     PaymentPolicy,
     ProjectInventory,
+    ProjectStatusFilter,
+    PROJECT_STATUS_FILTER_MAP,
     SalesAPIPort,
     UnitAvailability,
 )
@@ -277,19 +279,36 @@ class SalesAPIAdapter(SalesAPIPort):
             address=address
         )
 
-    async def list_all_projects(self) -> list[dict]:
+    async def list_all_projects(
+        self,
+        status_filter: Optional[ProjectStatusFilter] = None,
+    ) -> list[dict]:
         data = await self._get("/endpoint/project")
         if isinstance(data, dict):
             data = data.get("data", [])
-            
+
+        # Xác định tập API status cần giữ lại bằng cách tra cứu map tập trung.
+        # Khi API thêm status mới, chỉ cần sửa PROJECT_STATUS_FILTER_MAP trong interface.
+        allowed_statuses: set[str] | None = None
+        if status_filter:
+            allowed_statuses = {
+                s.value for s in PROJECT_STATUS_FILTER_MAP.get(status_filter, [])
+            }
+
         results = []
         for p in data:
+            raw_status = str(p.get("status", "")).strip()
+
+            # Client-side filter: exact match với giá trị enum thực của API
+            if allowed_statuses is not None and raw_status not in allowed_statuses:
+                continue
+
             results.append({
                 "id": p.get("id"),
                 "name": str(p.get("name", "")),
                 "code": p.get("code"),
                 "type": p.get("type"),
-                "status": p.get("status"),
+                "status": raw_status,
                 "investor": p.get("investor"),
                 "scale": p.get("scale"),
                 "area": p.get("area"),

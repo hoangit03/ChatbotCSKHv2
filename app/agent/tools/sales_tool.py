@@ -11,7 +11,7 @@ from typing import Optional
 
 from app.agent.state.agent_state import AgentState, ScarcityLevel
 from app.agent.tools.base_tool import AgentTool, ToolResult
-from app.core.interfaces.sales_api_port import SalesAPIPort
+from app.core.interfaces.sales_api_port import SalesAPIPort, ProjectStatusFilter
 from app.shared.errors.exceptions import SalesAPIError
 from app.shared.logging.logger import get_logger
 
@@ -98,8 +98,8 @@ class AvailabilityTool(AgentTool):
             },
         }
 
-    async def run(self, state: AgentState) -> ToolResult:
-        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
+        kwargs = tool_kwargs or {}
         unit_code = kwargs.get("unit_code", "")
         project = _project_name(state)
 
@@ -145,7 +145,7 @@ class InventoryTool(AgentTool):
             },
         }
 
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
         project = _project_name(state)
         try:
             inv = await self._api.get_project_inventory(project=project)
@@ -196,8 +196,8 @@ class UnitSearchTool(AgentTool):
             },
         }
 
-    async def run(self, state: AgentState) -> ToolResult:
-        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
+        kwargs = tool_kwargs or {}
         project = _project_name(state)
         try:
             units = await self._api.search_units(
@@ -256,9 +256,9 @@ class ConsultationTool(AgentTool):
             },
         }
 
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
         import re
-        kwargs = state.get("tool_kwargs", {}).get(self.name, {})
+        kwargs = tool_kwargs or {}
         
         # Lấy thông tin ưu tiên từ LLM trích xuất (kwargs), fallback về state
         name = kwargs.get("customer_name") or state.get("customer_name")
@@ -324,7 +324,7 @@ class ConsultationTool(AgentTool):
 # ── Tool 5: Project List ──────────────────────────────────────────
 
 class ProjectListTool(AgentTool):
-    """Lấy danh sách các dự án."""
+    """Lấy danh sách dự án, có thể lọc theo trạng thái."""
 
     def __init__(self, api: SalesAPIPort):
         self._api = api
@@ -335,7 +335,12 @@ class ProjectListTool(AgentTool):
 
     @property
     def description(self) -> str:
-        return "Lấy danh sách các dự án bất động sản hiện có."
+        return (
+            "Lấy danh sách các dự án bất động sản. "
+            "Dùng 'dang_mo_ban' khi khách hỏi dự án đang mở bán hoặc hiện đang bán. "
+            "Dùng 'sap_mo_ban' khi khách hỏi dự án sắp ra mắt. "
+            "Bỏ trống (không truyền) nếu khách muốn xem tất cả dự án không phân biệt trạng thái."
+        )
 
     @property
     def tool_schema(self) -> dict:
@@ -344,18 +349,50 @@ class ProjectListTool(AgentTool):
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": {"type": "object", "properties": {}},
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status_filter": {
+                            "type": "string",
+                            "description": (
+                                "Lọc danh sách theo trạng thái dự án. "
+                                "Giá trị: 'dang_mo_ban' (đang mở bán), 'sap_mo_ban' (sắp mở bán). "
+                                "Bỏ trống nếu muốn xem tất cả."
+                            ),
+                            "enum": ["dang_mo_ban", "sap_mo_ban"]
+                        }
+                    },
+                },
             },
         }
 
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
+        kwargs = tool_kwargs or {}
+        raw_filter = kwargs.get("status_filter")
+
+        # Convert string từ LLM → enum — an toàn, không crash nếu LLM gửi sai giá trị
+        status_filter: ProjectStatusFilter | None = None
+        if raw_filter:
+            try:
+                status_filter = ProjectStatusFilter(raw_filter)
+            except ValueError:
+                log.warning("project_list_invalid_filter", raw=raw_filter)
+                # Tiếp tục không filter — tốt hơn là crash
+
         try:
-            projects = await self._api.list_all_projects()
+            projects = await self._api.list_all_projects(status_filter=status_filter)
             if not projects:
-                return ToolResult(success=False, data=[], summary="Chưa có dự án nào.")
+                label = "đang mở bán" if status_filter == ProjectStatusFilter.DANG_MO_BAN else (
+                    "sắp mở bán" if status_filter == ProjectStatusFilter.SAP_MO_BAN else "nào"
+                )
+                return ToolResult(success=False, data=[], summary=f"Hiện không có dự án {label}.")
 
             state["sales_data"]["project_list"] = projects
-            summary = "Hiện có các dự án: " + ", ".join([str(p["name"]) for p in projects])
+            label = " đang mở bán" if status_filter == ProjectStatusFilter.DANG_MO_BAN else (
+                " sắp mở bán" if status_filter == ProjectStatusFilter.SAP_MO_BAN else ""
+            )
+            summary = f"Hiện có {len(projects)} dự án{label}: " + ", ".join([str(p["name"]) for p in projects])
             return ToolResult(success=True, data=projects, summary=summary)
         except SalesAPIError as e:
             return ToolResult(success=False, data=None, summary=f"Lỗi: {e.message}")
+

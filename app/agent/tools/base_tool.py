@@ -51,14 +51,14 @@ class AgentTool(ABC):
         return None
 
     @abstractmethod
-    async def run(self, state: AgentState) -> ToolResult:
+    async def run(self, state: AgentState, tool_kwargs: dict = None) -> ToolResult:
         ...
 
-    async def execute(self, state: AgentState) -> tuple[ToolResult, ToolCall]:
+    async def execute(self, state: AgentState, tool_kwargs: dict = None) -> tuple[ToolResult, ToolCall]:
         """Wrapper thêm timing và audit logging."""
         start = time.monotonic()
         try:
-            result = await self.run(state)
+            result = await self.run(state, tool_kwargs=tool_kwargs)
             duration = int((time.monotonic() - start) * 1000)
             call = ToolCall(
                 tool_name=self.name,

@@ -3,16 +3,49 @@ app/core/interfaces/sales_api_port.py
 
 Contract với hệ thống backend bán hàng (external API).
 
-CHANGELOG v4:
-  - Cập nhật register_consultation để khớp với payload mới:
-    { "name", "phoneNumber", "projectId", "projectName", "email", "address" }
-  - Giữ lại các method cơ bản về product/project.
+CHANGELOG v5:
+  - Thêm ProjectStatus enum: nguồn sự thật duy nhất cho status project từ API.
+  - Thêm ProjectStatusFilter enum: user-facing filter key (dùng trong tool schema).
+  - Thêm PROJECT_STATUS_FILTER_MAP: mapping tập trung filter → list[ProjectStatus].
+    Khi API thay đổi status, chỉ cần sửa tại đây.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
+
+
+# ── Project Status (giá trị thực từ API backend) ──────────────────
+
+class ProjectStatus(str, Enum):
+    """
+    Enum map 1-1 với giá trị trường `status` trả về từ /endpoint/project.
+    Khi API thêm/đổi status, chỉ cần thêm/sửa tại đây.
+    """
+    ABOUT_TO_SALE = "ABOUT_TO_SALE"   # Sắp mở bán
+    ON_SALE       = "ON_SALE"         # Đang mở bán
+    HANDING_OVER  = "HANDING_OVER"    # Đang bàn giao
+    HANDED_OVER   = "HANDED_OVER"     # Đã bàn giao
+
+
+class ProjectStatusFilter(str, Enum):
+    """
+    User-facing filter key — dùng trong tool schema (enum) để LLM truyền vào.
+    Mỗi key map tới một hoặc nhiều ProjectStatus.
+    """
+    DANG_MO_BAN = "dang_mo_ban"   # Đang mở bán
+    SAP_MO_BAN  = "sap_mo_ban"   # Sắp mở bán
+
+
+# Mapping tập trung: filter key → danh sách API status được chấp nhận.
+# Đây là nơi DUY NHẤT cần sửa khi business logic thay đổi.
+PROJECT_STATUS_FILTER_MAP: dict[ProjectStatusFilter, list[ProjectStatus]] = {
+    ProjectStatusFilter.DANG_MO_BAN: [ProjectStatus.ON_SALE],
+    ProjectStatusFilter.SAP_MO_BAN:  [ProjectStatus.ABOUT_TO_SALE],
+}
+
 
 
 # ── Response DTOs ─────────────────────────────────────────────────
@@ -161,6 +194,13 @@ class SalesAPIPort(ABC):
         ...
 
     @abstractmethod
-    async def list_all_projects(self) -> list[dict]:
-        """Lấy danh sách tất cả các dự án (bao gồm id và name)."""
+    async def list_all_projects(
+        self,
+        status_filter: Optional[ProjectStatusFilter] = None,
+    ) -> list[dict]:
+        """
+        Lấy danh sách dự án.
+        status_filter: ProjectStatusFilter enum — None = trả về tất cả.
+        Mapping filter → API status được định nghĩa trong PROJECT_STATUS_FILTER_MAP.
+        """
         ...
