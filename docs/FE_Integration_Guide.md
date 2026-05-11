@@ -19,13 +19,11 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 | Header Key | Ý Nghĩa | Bắt buộc | Ví dụ |
 |---|---|---|---|
-| `Authorization` | JWT Token của hệ thống đối tác (Gateway sẽ tự động giải mã và cấp quyền SSO). | Có | `Bearer eyJhbGci...` |
+| `X-API-Key` | Khóa xác thực dành cho đối tác/bên thứ 3 để truy cập trực tiếp vào Agent. | Có | `ak_guest_3rd_party_ctlotus_998877` |
 | `X-Session-ID` | Định danh phiên chat. Rất quan trọng để Bot ghi nhớ ngữ cảnh! | Có (Trừ lần đầu) | `sess_xyz123` |
 
-> **💡 CƠ CHẾ CẤP QUYỀN TỰ ĐỘNG (SSO AUTO-PROVISIONING):**
-> API Gateway được cấu hình để tự động nhận dạng JWT của đối tác (BYOT - Bring Your Own Token). Frontend KHÔNG cần truyền các header như `X-User-ID`, `X-Role-Level` vì Gateway sẽ tự động trích xuất `email` từ Payload của Token. 
-> - Nếu email chứa cụm từ `admin` (VD: `sysadmin@ctg.com`), user tự động nhận quyền Quản trị (Level D).
-> - Ngược lại, user nhận quyền Nhân viên/Khách (Level E).
+> **💡 CƠ CHẾ CẤP QUYỀN:**
+> Hệ thống hiện tại hỗ trợ kết nối trực tiếp qua API Key. Đối với bên thứ 3 tích hợp, vui lòng truyền `X-API-Key: ak_guest_3rd_party_ctlotus_998877` vào Header của mỗi request. Hệ thống sẽ tự động gán quyền truy cập dạng Khách (Guest Role).
 
 > **⚠️ LƯU Ý CHO FE (SESSION ID):**
 > Lần đầu người dùng nhắn tin, FE không cần truyền `X-Session-ID`. Backend sẽ trả về một `session_id` mới trong Response. Các câu hỏi tiếp theo của cùng cuộc trò chuyện, FE **BẮT BUỘC** phải đính kèm `session_id` này vào Header `X-Session-ID` hoặc trong Body để bot nhớ được lịch sử chat.
@@ -34,23 +32,24 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 ## 3. Danh Sách API Endpoints
 
-### 3.1. API Hỏi Đáp Chatbot - Dạng Stream (`POST /.../chat/stream`)
+### 3.1. API Hỏi Đáp Chatbot - Dạng Stream (`POST /api/v1/chat/stream`)
 
 Đây là endpoint cốt lõi dùng để giao tiếp với AI Agent. Agent tự động nhận diện ý định và phản hồi theo **thời gian thực (Server-Sent Events - SSE)**.
 
-**Endpoint (qua Gateway)**: `POST /api/{tenant_id}/chat/stream` (Ví dụ: `/api/primer-diamond/chat/stream`)
+**Endpoint**: `POST /api/v1/chat/stream`
 
 **Ví dụ JS (Dùng Fetch API & SSE):**
 ```javascript
-const res = await fetch("https://llmerp.hextech.vn/api/primer-diamond/chat/stream", {
+const res = await fetch("https://<DOMAIN_HOẶC_IP>/api/v1/chat/stream", {
     method: "POST",
     headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer <YOUR_JWT_TOKEN>"
+        "X-API-Key": "ak_guest_3rd_party_ctlotus_998877"
     },
     body: JSON.stringify({
         "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
-        "session_id": "sess_abc123" // Truyền nếu đang tiếp tục chat
+        "session_id": "sess_abc123", // Truyền nếu đang tiếp tục chat
+        "project_name": "Elysian"    // (Tùy chọn) Truyền tên dự án cụ thể nếu có
     })
 });
 
@@ -86,23 +85,24 @@ data: [DONE]
 
 ---
 
-### 3.2. API Hỏi Đáp Chatbot - Dạng Đồng Bộ (`POST /.../chat`)
+### 3.2. API Hỏi Đáp Chatbot - Dạng Đồng Bộ (`POST /api/v1/chat`)
 
 Nếu hệ thống Frontend/Mobile của bạn không hỗ trợ SSE (Server-Sent Events) hoặc không muốn dùng Stream, bạn có thể dùng API Đồng Bộ. Agent sẽ xử lý xong toàn bộ câu trả lời rồi mới trả về một JSON cục duy nhất. **Lưu ý: API này sẽ phải đợi khá lâu (5-15s) trước khi nhận được phản hồi.**
 
-**Endpoint (qua Gateway)**: `POST /{tenant_id}/chat` (Ví dụ: `/api/primer-diamond/chat`)
+**Endpoint**: `POST /api/v1/chat`
 
 **Ví dụ JS (Fetch API):**
 ```javascript
-const res = await fetch("https://llmerp.hextech.vn/api/primer-diamond/chat", {
+const res = await fetch("https://<DOMAIN_HOẶC_IP>/api/v1/chat", {
     method: "POST",
     headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer <YOUR_JWT_TOKEN>"
+        "X-API-Key": "ak_guest_3rd_party_ctlotus_998877"
     },
     body: JSON.stringify({
         "message": "Căn hộ 2PN tại dự án Elysian giá bao nhiêu?",
-        "session_id": "sess_abc123"
+        "session_id": "sess_abc123",
+        "project_name": "Elysian"
     })
 });
 

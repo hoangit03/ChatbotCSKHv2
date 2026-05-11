@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     debug: bool = False
     # Key để gọi API trong dev/staging. Đặt trong .env: DEV_API_KEY=...
     dev_api_key: str = "chatbot-primer"
+    # Key dành cho bên thứ 3 tích hợp (Guest)
+    guest_api_key: str = "ak_guest_3rd_party_ctlotus_998877"
 
     # ── Brand / Persona ───────────────────────────────────────────
     bot_name: str = "chatbot CT-Primer"

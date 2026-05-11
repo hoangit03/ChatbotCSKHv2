@@ -102,6 +102,7 @@ async def sale_chat(
     x_tenant_id: Optional[str] = Header(None),
     x_role_level: Optional[str] = Header("2"),   # Default 2 = sale
     x_session_id: Optional[str] = Header(None),
+    x_project_name: Optional[str] = Header(None),
 ) -> SaleChatOut:
     uc: HandleChatUseCase = request.app.state.handle_chat_uc
 
@@ -113,10 +114,12 @@ async def sale_chat(
     if role_level.isdigit() and int(role_level) < 2:
         role_level = "2"
 
+    final_project_name = x_project_name or body.project_name
+
     chat_req = ChatRequest(
         message=body.message,
         session_id=final_session_id,
-        project_name=body.project_name,
+        project_name=final_project_name,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         user_id=x_user_id,
@@ -182,6 +185,7 @@ async def sale_chat_stream(
     x_tenant_id: Optional[str] = Header(None),
     x_role_level: Optional[str] = Header("2"),
     x_session_id: Optional[str] = Header(None),
+    x_project_name: Optional[str] = Header(None),
 ):
     uc: HandleChatUseCase = request.app.state.handle_chat_uc
 
@@ -191,10 +195,12 @@ async def sale_chat_stream(
     if role_level.isdigit() and int(role_level) < 2:
         role_level = "2"
 
+    final_project_name = x_project_name or body.project_name
+
     chat_req = ChatRequest(
         message=body.message,
         session_id=final_session_id,
-        project_name=body.project_name,
+        project_name=final_project_name,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         user_id=x_user_id,

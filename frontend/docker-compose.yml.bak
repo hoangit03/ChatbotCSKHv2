@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  portal_ui:
+    build: .
+    container_name: global_portal
+    restart: unless-stopped
+    networks:
+      - global_proxy_network
+
+networks:
+  global_proxy_network:
+    external: true

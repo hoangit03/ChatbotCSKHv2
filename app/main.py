@@ -191,6 +191,15 @@ async def lifespan(app: FastAPI):
             key_preview=cfg.dev_api_key[:8] + "...",
             note="XOÁ key này trước khi deploy production!",
         )
+
+    # Đăng ký Guest API Key cho bên thứ 3 tích hợp
+    api_key_store.register(
+        raw_key=cfg.guest_api_key,
+        user_id="guest_3rd_party",
+        role="guest",
+    )
+    log.info("guest_api_key_registered", role="guest")
+
     app.state.api_key_store = api_key_store
 
     log.info("app_ready", env=cfg.app_env)

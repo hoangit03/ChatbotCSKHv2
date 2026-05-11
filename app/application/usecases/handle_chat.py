@@ -291,6 +291,26 @@ class HandleChatUseCase:
 
         # Run graph in background task
         graph_task = asyncio.create_task(self._graph.ainvoke(state))
+        
+        def _on_graph_done(task: asyncio.Task):
+            try:
+                # Nếu task lỗi, put thông báo lỗi
+                if task.exception():
+                    log.error("graph_task_exception_in_stream", error=str(task.exception()))
+                    try:
+                        queue.put_nowait({"type": "token", "content": "Dạ hệ thống đang quá tải, anh/chị vui lòng đợi một chút rồi thử lại nhé."})
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                pass
+            finally:
+                # Luôn đảm bảo có tín hiệu done
+                try:
+                    queue.put_nowait({"type": "done"})
+                except Exception:
+                    pass
+
+        graph_task.add_done_callback(_on_graph_done)
 
         real_token_emitted = False
         final_state = None
