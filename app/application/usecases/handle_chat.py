@@ -382,11 +382,12 @@ class HandleChatUseCase:
         )
 
         # Save history (stream mode)
+        # FIX BUG-09: Dùng asyncio.shield() để background save task không bị cancel
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
-            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
-            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            asyncio.ensure_future(asyncio.shield(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id)))
+            asyncio.ensure_future(asyncio.shield(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id)))
 
             ctx_to_save: dict = {}
             if response.project_name:

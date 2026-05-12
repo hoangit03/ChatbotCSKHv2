@@ -250,7 +250,7 @@ class QATool(AgentTool):
             project=state.get("project_name"),
             top_k=3,
             query_vec=query_vec,
-            min_role_level=state.get("min_role_level"),
+            # FIX BUG-11: Đã xóa min_role_level — field này không tồn tại trong AgentState
         )
 
         if not results:
