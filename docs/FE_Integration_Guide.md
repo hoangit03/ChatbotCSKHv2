@@ -7,7 +7,7 @@ Tài liệu này cung cấp các thông số kỹ thuật và API chi tiết đ�
 ## 1. Thông Tin Chung
 Hệ thống Chatbot Backend hiện tại đang chạy hoàn toàn bằng API (không có Web UI đính kèm). Frontend (Portal UI) sẽ gọi trực tiếp hoặc thông qua API Gateway đến các endpoint này.
 
-- **Base URL (Gateway)**: `https://llmerp.hextech.vn/primer-diamond` *(Vui lòng confirm lại Route từ Gateway proxy)*
+- **Base URL (Gateway)**: `https://app.ctpai.vn/api/primer-diamond`
 - **Protocol**: HTTP/HTTPS
 - **Content-Type mặc định**: `application/json`
 
@@ -32,15 +32,15 @@ Khi gọi API, Frontend cần truyền đầy đủ các Headers sau đây (nế
 
 ## 3. Danh Sách API Endpoints
 
-### 3.1. API Hỏi Đáp Chatbot - Dạng Stream (`POST /api/v1/chat/stream`)
+### 3.1. API Hỏi Đáp Chatbot - Dạng Stream (`POST /api/primer-diamond/chat/stream`)
 
 Đây là endpoint cốt lõi dùng để giao tiếp với AI Agent. Agent tự động nhận diện ý định và phản hồi theo **thời gian thực (Server-Sent Events - SSE)**.
 
-**Endpoint**: `POST /api/v1/chat/stream`
+**Endpoint**: `POST /api/primer-diamond/chat/stream`
 
 **Ví dụ JS (Dùng Fetch API & SSE):**
 ```javascript
-const res = await fetch("https://<DOMAIN_HOẶC_IP>/api/v1/chat/stream", {
+const res = await fetch("https://app.ctpai.vn/api/primer-diamond/chat/stream", {
     method: "POST",
     headers: {
         "Content-Type": "application/json",
@@ -85,15 +85,15 @@ data: [DONE]
 
 ---
 
-### 3.2. API Hỏi Đáp Chatbot - Dạng Đồng Bộ (`POST /api/v1/chat`)
+### 3.2. API Hỏi Đáp Chatbot - Dạng Đồng Bộ (`POST /api/primer-diamond/chat`)
 
 Nếu hệ thống Frontend/Mobile của bạn không hỗ trợ SSE (Server-Sent Events) hoặc không muốn dùng Stream, bạn có thể dùng API Đồng Bộ. Agent sẽ xử lý xong toàn bộ câu trả lời rồi mới trả về một JSON cục duy nhất. **Lưu ý: API này sẽ phải đợi khá lâu (5-15s) trước khi nhận được phản hồi.**
 
-**Endpoint**: `POST /api/v1/chat`
+**Endpoint**: `POST /api/primer-diamond/chat`
 
 **Ví dụ JS (Fetch API):**
 ```javascript
-const res = await fetch("https://<DOMAIN_HOẶC_IP>/api/v1/chat", {
+const res = await fetch("https://app.ctpai.vn/api/primer-diamond/chat", {
     method: "POST",
     headers: {
         "Content-Type": "application/json",
@@ -115,11 +115,11 @@ const data = await res.json();
 
 ---
 
-### 3.3. API Lấy Danh Sách Dự Án (`GET /api/v1/projects`)
+### 3.3. API Lấy Danh Sách Dự Án (`GET /api/primer-diamond/projects`)
 
 Dùng để hiển thị danh sách các dự án hiện có trên Dropdown của giao diện Chat.
 
-**Endpoint**: `GET /api/v1/projects`
+**Endpoint**: `GET /api/primer-diamond/projects`
 
 **Body Response (JSON)**:
 ```json
@@ -134,11 +134,11 @@ Dùng để hiển thị danh sách các dự án hiện có trên Dropdown củ
 
 ---
 
-### 3.4. API Kiểm Tra Trạng Thái Hệ Thống (`GET /health`)
+### 3.4. API Kiểm Tra Trạng Thái Hệ Thống (`GET /api/primer-diamond/health`)
 
 Dùng để Frontend/Load Balancer kiểm tra tình trạng kết nối.
 
-**Endpoint**: `GET /health`
+**Endpoint**: `GET /api/primer-diamond/health`
 
 **Body Response (JSON)**:
 ```json

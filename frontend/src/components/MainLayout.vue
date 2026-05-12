@@ -2,7 +2,7 @@
   <div class="app-container">
     <Sidebar :tenant="currentTenant" :role="currentRole" @tenant-changed="handleTenantChange" @logout="handleLogout" />
     <main class="main-content glass-panel">
-      <router-view :tenant="currentTenant" :role="currentRole" />
+      <router-view :tenant="currentTenant" :role="currentRole" :dept="currentDept" />
     </main>
   </div>
 </template>
@@ -30,8 +30,24 @@ onMounted(() => {
 const currentTenant = computed(() => route.params.tenantId || 'qtqd');
 const currentRole = computed(() => {
   const urlParams = new URLSearchParams(window.location.search);
-  const roleParam = route.query.role || urlParams.get('role');
+  let roleParam = route.query.role || urlParams.get('role');
+  if (roleParam) {
+    sessionStorage.setItem('cskh_role', roleParam);
+  } else {
+    roleParam = sessionStorage.getItem('cskh_role');
+  }
   return roleParam || 'E'; // Default 'E'
+});
+
+const currentDept = computed(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  let deptParam = route.query.dept || urlParams.get('dept');
+  if (deptParam) {
+    sessionStorage.setItem('cskh_dept', deptParam);
+  } else {
+    deptParam = sessionStorage.getItem('cskh_dept');
+  }
+  return deptParam || 'General';
 });
 
 const handleTenantChange = (newTenant) => {

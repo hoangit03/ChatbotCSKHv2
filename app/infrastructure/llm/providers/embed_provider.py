@@ -35,10 +35,11 @@ class OpenAIEmbedProvider(EmbedPort):
         all_vecs: list[list[float]] = []
         for i in range(0, len(texts), _BATCH_SIZE):
             batch = texts[i : i + _BATCH_SIZE]
-            resp = await self._client.embeddings.create(
-                model=self._model,
-                input=batch,
-            )
+            kwargs = {"model": self._model, "input": batch}
+            if "text-embedding-3" in self._model:
+                kwargs["dimensions"] = self._dimension
+            
+            resp = await self._client.embeddings.create(**kwargs)
             all_vecs.extend(item.embedding for item in resp.data)
         return all_vecs
 

@@ -46,7 +46,7 @@ services:
     container_name: cskh_frontend
     restart: unless-stopped
     ports:
-    - 8009:80
+    - 8012:80
     networks:
     - global_proxy_network
 

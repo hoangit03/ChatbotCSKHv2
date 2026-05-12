@@ -8,6 +8,7 @@ Cập nhật:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 import httpx
@@ -131,31 +132,45 @@ class SalesAPIAdapter(SalesAPIPort):
         return [UnitAvailability.from_api_dict(u, project) for u in data]
 
     async def get_project_inventory(self, project: str) -> ProjectInventory:
-        # 1. Lấy thông tin tổng quan của dự án
-        proj_data = await self._get("/endpoint/project", params={"name": project})
+        # BUG-06 FIX: 2 HTTP calls chạy PARALLEL thay vì sequential
+        # Cũ: ~4–6s (2 × round-trip), Mới: ~2–3s (max của 2 calls)
+        proj_data_task = self._get("/endpoint/project", params={"name": project})
+        products_data_task = self._get("/endpoint/product", params={"project": project})
+
+        proj_data, products_data = await asyncio.gather(
+            proj_data_task, products_data_task, return_exceptions=True
+        )
+
+        # Handle lỗi riêng từng call — không để 1 call fail làm crash cả hàm
         total_units = 0
         project_name = project
-        if isinstance(proj_data, list) and proj_data:
+        if isinstance(proj_data, Exception):
+            log.warning("get_project_info_failed", project=project, error=str(proj_data))
+        elif isinstance(proj_data, list) and proj_data:
             proj_data = proj_data[0]
             project_name = proj_data.get("name", project)
             total_units = int(proj_data.get("scale", 0))
+        elif isinstance(proj_data, dict):
+            project_name = proj_data.get("name", project)
+            total_units = int(proj_data.get("scale", 0))
 
-        # 2. Gọi API /endpoint/product để lấy tất cả căn hộ và tự tính toán (aggregation)
-        products_data = await self._get("/endpoint/product", params={"project": project})
-        units = products_data.get("data", products_data.get("units", [])) if isinstance(products_data, dict) else products_data
-        
-        available = 0
-        reserved = 0
-        sold = 0
-        
-        for u in units:
-            unit_dto = UnitAvailability.from_api_dict(u, project_name)
-            if unit_dto.status == "available":
-                available += 1
-            elif unit_dto.status == "reserved":
-                reserved += 1
-            elif unit_dto.status == "sold":
-                sold += 1
+        available = reserved = sold = 0
+        if isinstance(products_data, Exception):
+            log.warning("get_product_list_failed", project=project, error=str(products_data))
+        else:
+            units = (
+                products_data.get("data", products_data.get("units", []))
+                if isinstance(products_data, dict)
+                else products_data
+            )
+            for u in units:
+                unit_dto = UnitAvailability.from_api_dict(u, project_name)
+                if unit_dto.status == "available":
+                    available += 1
+                elif unit_dto.status == "reserved":
+                    reserved += 1
+                elif unit_dto.status == "sold":
+                    sold += 1
 
         return ProjectInventory(
             project=project_name,

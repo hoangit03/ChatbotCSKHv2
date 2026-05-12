@@ -1,7 +1,7 @@
 <template>
   <div class="etl-page page-content active">
     <div class="page-header">
-      <h2>NẠP DỮ LIỆU - {{ props.tenant.toUpperCase() }}</h2>
+      <h2>NẠP DỮ LIỆU - {{ (props.tenant || '').toUpperCase() }}</h2>
       <p class="text-sm text-gray">Quản lý cơ sở tri thức AI</p>
     </div>
 
@@ -14,14 +14,13 @@
         </div>
         
         <form @submit.prevent="handleUpload" id="etl-form" class="mt-20">
-          <div v-if="props.tenant === 'primer-diamond'" class="form-group mb-20">
-            <label><i class="fa-solid fa-building"></i> Chọn dự án:</label>
+          <div class="form-group mb-20">
+            <label><i class="fa-solid fa-building"></i> Tên dự án / Chủ đề:</label>
             <div class="custom-select-wrapper mt-5">
-              <select v-model="selectedProject" class="glass-input custom-input" required>
-                <option value="" disabled>-- Chọn dự án --</option>
-                <option v-for="p in projects" :key="p" :value="p">{{ p }}</option>
-              </select>
-              <i class="fa-solid fa-chevron-down select-icon"></i>
+              <input type="text" v-model="selectedProject" list="project-options" class="glass-input custom-input" placeholder="Nhập hoặc chọn tên dự án..." required>
+              <datalist id="project-options">
+                <option v-for="p in projects" :key="p" :value="p"></option>
+              </datalist>
             </div>
           </div>
 
@@ -83,7 +82,7 @@
           <div v-else class="file-tree custom-scroll">
             <div v-for="(projectsMap, t_id) in filesData" :key="t_id" class="tenant-node mb-15">
               <div class="tree-header tenant-header">
-                <i class="fa-solid fa-server"></i> Domain: {{ t_id.toUpperCase() }}
+                <i class="fa-solid fa-server"></i> Domain: {{ (t_id || '').toUpperCase() }}
               </div>
               <div class="tenant-children ml-15 mt-10">
                 <div v-for="(fileList, pName) in projectsMap" :key="pName" class="project-node mb-10">
@@ -112,8 +111,8 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { api } from '../api';
 
 const props = defineProps({
-  tenant: { type: String, required: true },
-  role: { type: String, required: true }
+  tenant: { type: String, required: false, default: 'qtqd' },
+  role: { type: String, required: false, default: 'E' }
 });
 
 const projects = ref([]);
@@ -136,13 +135,11 @@ const userLevel = computed(() => {
 });
 
 const loadProjects = async () => {
-  if (props.tenant === 'primer-diamond') {
-    try {
-      const data = await api.getProjects();
-      projects.value = data.projects || [];
-    } catch (err) {
-      console.error(err);
-    }
+  try {
+    const data = await api.getProjects(props.tenant);
+    projects.value = data.projects || [];
+  } catch (err) {
+    console.error(err);
   }
 };
 
@@ -184,8 +181,8 @@ const handleUpload = async () => {
   const files = fileInput.value.files;
   if (!files.length) return;
   
-  if (props.tenant === 'primer-diamond' && !selectedProject.value) {
-    alert("Vui lòng chọn dự án!");
+  if (!selectedProject.value) {
+    alert("Vui lòng nhập tên dự án!");
     return;
   }
 

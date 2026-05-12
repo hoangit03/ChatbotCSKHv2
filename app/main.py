@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware.auth import APIKeyMiddleware, APIKeyStore
-from app.api.v1.endpoints import chat, health, project, sale_chat
+from app.api.v1.endpoints import chat, health, project, sale_chat, documents
 from app.core.config.settings import get_settings
 from app.shared.errors.exceptions import AppError
 from app.shared.logging.logger import get_logger, setup_logging
@@ -208,6 +208,9 @@ async def lifespan(app: FastAPI):
     # ── Cleanup ───────────────────────────────────────────────────
     await sales_api.close()
     await redis_pool.aclose()
+    # BUG-03 FIX: đóng pg pool khi shutdown để tránh connection leak
+    from app.infrastructure.cache.pg_history import close_pg_pool
+    await close_pg_pool()
     log.info("app_shutdown")
 
 
@@ -277,6 +280,7 @@ app.include_router(health.router)                               # /health
 app.include_router(chat.router,       prefix=API_V1)           # /api/v1/chat (Luồng A — Public)
 app.include_router(sale_chat.router,  prefix=API_V1)           # /api/v1/sale/chat (Luồng B — X-API-Key)
 app.include_router(project.router,    prefix=API_V1)           # /api/v1/projects
+app.include_router(documents.router,  prefix=API_V1)           # /api/v1/documents/upload
 
 
 # ─────────────────────────────────────────────────────────────────

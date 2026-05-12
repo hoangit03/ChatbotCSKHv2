@@ -142,6 +142,13 @@ async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: Cha
     from app.agent.state.agent_state import Intent
     intent = state.get("intent")
 
+    # [BUG-04 FIX] Sale nội bộ → bypass hoàn toàn
+    # Sale cần truy vấn tự do (xem tất cả dự án, giá, tồn kho) mà không bị
+    # chặn hỏi "bạn quan tâm dự án nào?" — ConsultationTool tự slot-fill khi cần.
+    if state.get("user_type") == "sale":
+        log.info("project_guard_bypassed_for_sale", session=state.get("session_id"))
+        return state
+
     # [BYPASS] Chitchat → cho qua ngay
     if intent == Intent.CHITCHAT:
         log.info("project_guard_bypassed_for_chitchat", session=state.get("session_id"))

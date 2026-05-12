@@ -4,14 +4,6 @@
       <h2 style="color: var(--primary-color)">AI ORCHESTRATION</h2>
     </div>
 
-    <div class="domain-selector mb-20">
-      <label class="text-sm text-gray">CHỌN DOMAIN</label>
-      <select :value="tenant" @change="$emit('tenant-changed', $event.target.value)" class="glass-input mt-10">
-        <option value="qtqd">QUY TRÌNH QUY ĐỊNH</option>
-        <option value="primer-diamond">CSKH PRIMER-DIAMOND</option>
-      </select>
-    </div>
-
     <nav class="nav-menu">
       <router-link :to="`/${tenant}/chat`" class="nav-item glass-button" active-class="active">
         <i>💬</i> Chat
