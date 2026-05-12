@@ -71,7 +71,16 @@ def create_chat_provider(cfg: Settings) -> ChatPort:
 
 
 def create_embed_provider(cfg: Settings) -> EmbedPort:
-    """Embedding luôn dùng OpenAI — chất lượng ổn định nhất."""
+    """Embedding luôn dùng OpenAI hoặc Core_Embedding."""
+    
+    # Nếu có base_url trỏ tới core_embedding (ví dụ port 8004)
+    if cfg.embedding_base_url and "8004" in cfg.embedding_base_url:
+        from app.infrastructure.llm.providers.embed_provider import CoreEmbedProvider
+        return CoreEmbedProvider(
+            base_url=cfg.embedding_base_url,
+            dimension=cfg.embedding_dimension
+        )
+
     from app.infrastructure.llm.providers.embed_provider import OpenAIEmbedProvider
 
     # Nếu không có OpenAI key (e.g., pure Anthropic setup) → raise sớm
@@ -85,4 +94,5 @@ def create_embed_provider(cfg: Settings) -> EmbedPort:
         api_key=cfg.openai_api_key,
         model=cfg.embedding_model,
         dimension=cfg.embedding_dimension,
+        base_url=cfg.embedding_base_url
     )

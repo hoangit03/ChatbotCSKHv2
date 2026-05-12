@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # ── Embedding ─────────────────────────────────────────────────
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
+    embedding_base_url: str | None = None
 
     # ── Vector DB ─────────────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"

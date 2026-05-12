@@ -336,12 +336,12 @@ class HandleChatUseCase:
             if not filler_bg.done():
                 filler_bg.cancel()
 
-        if graph_task.exception():
+        if graph_task.done() and graph_task.exception():
             log.error("graph_stream_crash", error=str(graph_task.exception()))
             yield f"data: {json.dumps({'text': 'Hệ thống đang bận, xin vui lòng thử lại sau.', 'session_id': session_id})}\n\n"
             
         final_state = None
-        if not graph_task.exception():
+        if graph_task.done() and not graph_task.exception():
             final_state = graph_task.result()
             if not real_token_emitted:
                 fallback_answer = final_state.get("final_answer", "")

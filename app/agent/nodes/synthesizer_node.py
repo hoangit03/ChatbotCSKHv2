@@ -193,7 +193,7 @@ class SynthesizerNode:
                 async def _push_to_queue():
                     await queue.put({"type": "token", "content": state["final_answer"]})
                     await queue.put({"type": "suggestions", "content": state["suggested_questions"]})
-                    await queue.put({"type": "done"})
+                    # DO NOT push done here, _on_graph_done will handle it
                     
                 asyncio.create_task(_push_to_queue())
                 
@@ -308,7 +308,7 @@ class SynthesizerNode:
                     state["final_answer"] = FALLBACK_MESSAGE
                     state["fallback"] = True
                 finally:
-                    await queue.put({"type": "done"})
+                    pass  # DO NOT push done here, let graph_task finish and trigger _on_graph_done
                 
                 duration_ms = int((time.monotonic() - t0) * 1000)
             else:
@@ -370,7 +370,6 @@ class SynthesizerNode:
                 try:
                     queue = state["stream_queue"]
                     queue.put_nowait({"type": "token", "content": FALLBACK_MESSAGE})
-                    queue.put_nowait({"type": "done"})
                 except Exception:
                     pass
 

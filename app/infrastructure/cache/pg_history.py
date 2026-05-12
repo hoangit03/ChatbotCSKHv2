@@ -57,7 +57,7 @@ async def save_chat_message_async(session_id: str, role: str, content: str, user
             if not session_exists:
                 # Nếu không có user_id hợp lệ, truyền None để tránh vi phạm khóa ngoại (0 không tồn tại)
                 uid = int(user_id) if user_id and str(user_id).isdigit() and user_id != "0" else None
-                tid = tenant_id if tenant_id else "default"
+                tid = tenant_id if tenant_id else "primer-diamond"
                 await conn.execute(
                     """
                     INSERT INTO chat_sessions (id, user_id, tenant_id, title)

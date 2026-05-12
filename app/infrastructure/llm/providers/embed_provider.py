@@ -17,9 +17,9 @@ _BATCH_SIZE = 64   # OpenAI rate limit safe
 
 class OpenAIEmbedProvider(EmbedPort):
 
-    def __init__(self, api_key: str, model: str, dimension: int):
+    def __init__(self, api_key: str, model: str, dimension: int, base_url: str = None):
         from openai import AsyncOpenAI
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
         self._dimension = dimension
 
@@ -42,6 +42,37 @@ class OpenAIEmbedProvider(EmbedPort):
             resp = await self._client.embeddings.create(**kwargs)
             all_vecs.extend(item.embedding for item in resp.data)
         return all_vecs
+
+    async def embed_one(self, text: str) -> list[float]:
+        vecs = await self.embed([text])
+        return vecs[0]
+
+
+class CoreEmbedProvider(EmbedPort):
+    """Provider cho custom core_embedding service (port 8004)."""
+    
+    def __init__(self, base_url: str, dimension: int):
+        self._base_url = base_url.rstrip("/")
+        self._dimension = dimension
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        import httpx
+        if not texts:
+            return []
+            
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self._base_url}/embed",
+                json={"inputs": texts}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["embeddings"]
 
     async def embed_one(self, text: str) -> list[float]:
         vecs = await self.embed([text])
