@@ -22,19 +22,31 @@ export const api = {
   uploadETL: async (tenantId, file, minRoleLevel, forceOverwrite = false, projectName = "") => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('domain', tenantId);
     formData.append('project_name', projectName || tenantId);
     formData.append('doc_group', "Tài liệu dự án");
     formData.append('version', "1.0");
+    formData.append('min_role_level', minRoleLevel);
+    formData.append('force_overwrite', forceOverwrite);
 
-    const { data } = await getClient(tenantId).post('/documents/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    // Gọi thẳng vào Nginx proxy /shared_etl/ (chạy port 8010 trên server)
+    const { data } = await axios.post('/shared_etl/etl/extract', formData, {
+      headers: { 
+        'Content-Type': 'multipart/form-data',
+        'X-Tenant-Id': tenantId,
+        'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
+      }
     });
     return data;
   },
 
   getETLFiles: async (tenantId) => {
-    // Dummy implementation if there is no get API
-    return { files: [] };
+    const { data } = await axios.get('/shared_etl/etl/files', {
+      headers: {
+        'X-API-Key': 'ak_guest_3rd_party_ctlotus_998877'
+      }
+    });
+    return data;
   },
 
   // Chat/Sessions 

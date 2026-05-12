@@ -1,7 +1,7 @@
 <template>
   <div class="etl-page page-content active">
     <div class="page-header">
-      <h2>NẠP DỮ LIỆU - {{ props.tenant.toUpperCase() }}</h2>
+      <h2>NẠP DỮ LIỆU - {{ (props.tenant || '').toUpperCase() }}</h2>
       <p class="text-sm text-gray">Quản lý cơ sở tri thức AI</p>
     </div>
 
@@ -82,7 +82,7 @@
           <div v-else class="file-tree custom-scroll">
             <div v-for="(projectsMap, t_id) in filesData" :key="t_id" class="tenant-node mb-15">
               <div class="tree-header tenant-header">
-                <i class="fa-solid fa-server"></i> Domain: {{ t_id.toUpperCase() }}
+                <i class="fa-solid fa-server"></i> Domain: {{ (t_id || '').toUpperCase() }}
               </div>
               <div class="tenant-children ml-15 mt-10">
                 <div v-for="(fileList, pName) in projectsMap" :key="pName" class="project-node mb-10">
@@ -111,8 +111,8 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { api } from '../api';
 
 const props = defineProps({
-  tenant: { type: String, required: true },
-  role: { type: String, required: true }
+  tenant: { type: String, required: false, default: 'qtqd' },
+  role: { type: String, required: false, default: 'E' }
 });
 
 const projects = ref([]);
