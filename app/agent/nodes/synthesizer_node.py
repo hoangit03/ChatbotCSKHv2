@@ -192,19 +192,11 @@ class SynthesizerNode:
 
                 async def _push_to_queue():
                     await queue.put({"type": "token", "content": state["final_answer"]})
-<<<<<<< HEAD
-                    await queue.put({"type": "suggestions", "content": state["suggested_questions"]})
-                    # DO NOT push done here, _on_graph_done will handle it
-                    
-                asyncio.create_task(_push_to_queue())
-                
-=======
                     await queue.put({"type": "suggestions", "content": state.get("suggested_questions", [])})
                     await queue.put({"type": "done"})
 
                 asyncio.ensure_future(_push_to_queue())
 
->>>>>>> fix/sale_flow
             return state
 
         context = self._build_context(state)
