@@ -81,22 +81,35 @@ async def save_chat_message_async(
 
         # async with pool.acquire() tự đóng connection khi ra khỏi block
         async with pool.acquire() as conn:
-            # Tạo session nếu chưa tồn tại (chỉ khi có user_id và tenant_id)
-            if user_id and tenant_id:
+            # Luôn tạo session nếu chưa tồn tại
+            uid = int(user_id) if user_id and str(user_id).isdigit() else None
+            tid = tenant_id if tenant_id else None
+            title = content[:50] + "..." if len(content) > 50 else content
+
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO chat_sessions (id, user_id, tenant_id, title)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    session_uuid, uid, tid, title,
+                )
+            except asyncpg.PostgresError as e:
+                log.warning("pg_create_session_fk_failed", error=str(e), uid=uid, tid=tid)
+                # Thử lại với uid và tid = NULL nếu bị lỗi khóa ngoại (VD: tenant chưa tạo)
                 try:
-                    uid = int(user_id)
-                    title = content[:50] + "..." if len(content) > 50 else content
                     await conn.execute(
                         """
-                        INSERT INTO chat_sessions (id, user_id, tenant_id, title)
-                        VALUES ($1, $2, $3, $4)
+                        INSERT INTO chat_sessions (id, title)
+                        VALUES ($1, $2)
                         ON CONFLICT (id) DO NOTHING
                         """,
-                        session_uuid, uid, tenant_id, title,
+                        session_uuid, title,
                     )
-                except (ValueError, asyncpg.PostgresError) as e:
-                    # Không fail toàn bộ function nếu tạo session lỗi
-                    log.warning("pg_create_session_failed", error=str(e))
+                except asyncpg.PostgresError as e2:
+                    log.error("pg_create_session_fallback_failed", error=str(e2))
+                    return  # Không thể lưu message nếu không tạo được session
 
             await conn.execute(
                 """

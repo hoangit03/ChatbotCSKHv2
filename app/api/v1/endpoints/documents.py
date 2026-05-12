@@ -2,7 +2,6 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, Request
 from typing import Optional
 import httpx
 from app.shared.errors.exceptions import AppError
-from app.api.dependencies import verify_api_key
 
 router = APIRouter(tags=["Documents"])
 
@@ -14,8 +13,7 @@ async def upload_document(
     file: UploadFile = File(...),
     project_name: Optional[str] = Form(None),
     min_role_level: int = Form(1),
-    force_overwrite: bool = Form(False),
-    api_key: str = Depends(verify_api_key)
+    force_overwrite: bool = Form(False)
 ):
     """
     Proxy upload file to shared_etl service
