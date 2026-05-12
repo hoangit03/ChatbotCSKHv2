@@ -198,14 +198,20 @@ async def chat_stream(
         media_type="text/event-stream"
     )
 
-@router.get("/projects", summary="Lấy danh sách dự án (Mock)")
-async def get_projects():
-    return {
-        "status": "success",
-        "data": [
-            {"id": "metro-star", "name": "METRO STAR"},
-            {"id": "leman", "name": "LÉMAN"},
-            {"id": "ct-plaza", "name": "CT PLAZA"},
-            {"id": "i-tower", "name": "I-TOWER"}
-        ]
-    }
+@router.get("/projects", summary="Lấy danh sách dự án từ Sales API")
+async def get_projects(request: Request):
+    """
+    BUG-08 FIX: Thay dữ liệu mock bằng real-time từ Sales API.
+    Fallback về danh sách rỗng nếu Sales API chưa được cấu hình.
+    """
+    sales_api = getattr(request.app.state, "sales_api", None)
+    if sales_api is None:
+        # Sales API chưa cấu hình → trả danh sách rỗng (không mock sai)
+        return {"status": "success", "data": [], "note": "Sales API chưa được cấu hình"}
+    try:
+        from app.core.interfaces.sales_api_port import ProjectStatusFilter
+        projects = await sales_api.list_all_projects(status_filter=None)
+        return {"status": "success", "data": projects}
+    except Exception as e:
+        log.error("get_projects_endpoint_error", error=str(e))
+        return {"status": "error", "data": [], "detail": "Không thể lấy danh sách dự án"}

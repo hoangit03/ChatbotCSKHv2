@@ -151,7 +151,7 @@ class SynthesizerNode:
             state["human_handover_requested"] = True
             state["final_answer"] = (
                 "Dạ, em hiểu anh/chị muốn được hỗ trợ trực tiếp từ chuyên viên. "
-                "Em sẽ chuyển thông tin đến đội ngũ sale ngay bây giọ. "
+                "Em sẽ chuyển thông tin đến đội ngũ sale ngay bây giờ. "
                 "Anh/chị vui lòng để lại số điện thoại để chuyên viên liên hệ lại trong vòng 5 phút nhé."
             )
             state["suggested_questions"] = [
@@ -169,7 +169,7 @@ class SynthesizerNode:
             
         if state.get("final_answer"):
             log.info("synthesizer_skip_already_answered", session=state.get("session_id"))
-            # Generate suggested_questions dựa trên context dự án thành có
+            # Generate suggested_questions nếu chưa có
             if not state.get("suggested_questions"):
                 available_info = state.get("sales_data", {}).get("project_list", [])
                 if available_info:
@@ -181,22 +181,30 @@ class SynthesizerNode:
                 else:
                     p_name = state.get("project_name") or ""
                     state["suggested_questions"] = [
-                        f"Dự án {p_name} có những loại căn nào?" if p_name else "Hiện có những dự án nào?",
-                        "Chính sách bán hàng như thế nào?",
+                        f"Dự án {p_name} có những loại căn nào?" if p_name else "Hiện có những dự án nào đang mở bán?",
+                        "Tôi muốn để lại số điện thoại để được tư vấn trực tiếp",
                     ]
-                state["suggested_questions"] = []
-                
+                # BUG-C1 đã được fix: đã xóa dòng overwrite `state["suggested_questions"] = []` sai
+
             if state.get("stream_queue"):
                 import asyncio
                 queue = state["stream_queue"]
-                
+
                 async def _push_to_queue():
                     await queue.put({"type": "token", "content": state["final_answer"]})
+<<<<<<< HEAD
                     await queue.put({"type": "suggestions", "content": state["suggested_questions"]})
                     # DO NOT push done here, _on_graph_done will handle it
                     
                 asyncio.create_task(_push_to_queue())
                 
+=======
+                    await queue.put({"type": "suggestions", "content": state.get("suggested_questions", [])})
+                    await queue.put({"type": "done"})
+
+                asyncio.ensure_future(_push_to_queue())
+
+>>>>>>> fix/sale_flow
             return state
 
         context = self._build_context(state)

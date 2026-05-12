@@ -70,21 +70,27 @@ class UnitAvailability:
     @classmethod
     def from_api_dict(cls, u: dict, project_name: str) -> "UnitAvailability":
         """Map raw API dict (product.json schema) → UnitAvailability DTO."""
+        import re as _re
         raw_status = str(u.get("virtualStatus", u.get("status", ""))).lower().strip()
         
         if raw_status in ("kho", "chưa mở bán", "mở bán", "trống", "available"):
             status = "available"
         elif raw_status in ("booking", "chuyển cọc, chờ hồ sơ", "đặt cọc", "đăng kí", "thỏa thuận đảm bảo", "giữ chỗ", "reserved"):
             status = "reserved"
-        elif raw_status in ("hợp đồng", "thanh lý", "chuyển nhượng", "khoá", "đã bàn giao", "bàn giao sổ hồng", "đã bán", "sold"):
+        elif raw_status in ("hợp đồng", "thanh lý", "chuyển nhượng", "khoà", "đã bàn giao", "bàn giao sổ hồng", "đã bán", "sold"):
             status = "sold"
         else:
             status = "unknown"
 
+        # FIX BUG-04: Parse floor an toàn, xử lý cả dạng "ầng 5", "B1", "10F", "3"
+        raw_floor = str(u.get("floor", "") or "")
+        floor_match = _re.search(r"\d+", raw_floor)
+        floor_int = int(floor_match.group()) if floor_match else 0
+
         return cls(
             unit_code=str(u.get("code", "")),
             project=project_name,
-            floor=int(u.get("floor", 0)) if str(u.get("floor", "")).isdigit() else 0,
+            floor=floor_int,
             area_m2=float(u.get("builtUpArea", 0) or 0),
             bedrooms=int(u.get("bedRoom", 0) or 0),
             status=status,

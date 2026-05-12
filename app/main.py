@@ -208,6 +208,9 @@ async def lifespan(app: FastAPI):
     # ── Cleanup ───────────────────────────────────────────────────
     await sales_api.close()
     await redis_pool.aclose()
+    # BUG-03 FIX: đóng pg pool khi shutdown để tránh connection leak
+    from app.infrastructure.cache.pg_history import close_pg_pool
+    await close_pg_pool()
     log.info("app_shutdown")
 
 

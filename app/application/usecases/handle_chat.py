@@ -336,18 +336,23 @@ class HandleChatUseCase:
             if not filler_bg.done():
                 filler_bg.cancel()
 
-        if graph_task.done() and graph_task.exception():
-            log.error("graph_stream_crash", error=str(graph_task.exception()))
-            yield f"data: {json.dumps({'text': 'Hệ thống đang bận, xin vui lòng thử lại sau.', 'session_id': session_id})}\n\n"
-            
+        # BUG-01 FIX: graph_task.result() là đủ — không được await lần 2
+        task_exc = None
+        try:
+            task_exc = graph_task.exception()
+        except asyncio.CancelledError:
+            pass
+
         final_state = None
-        if graph_task.done() and not graph_task.exception():
-            final_state = graph_task.result()
+        if task_exc:
+            log.error("graph_stream_crash", error=str(task_exc))
+            yield f"data: {json.dumps({'text': 'Hệ thống đang bận, xin vui lòng thử lại sau.', 'session_id': session_id})}\n\n"
+        else:
+            final_state = graph_task.result()  # Task đã done — gọi .result() một lần duy nhất
             if not real_token_emitted:
                 fallback_answer = final_state.get("final_answer", "")
                 if fallback_answer:
                     yield f"data: {json.dumps({'text': fallback_answer, 'session_id': session_id})}\n\n"
-            final_state = await graph_task
             
         if final_state is None:
             final_state = state
@@ -371,11 +376,12 @@ class HandleChatUseCase:
         )
 
         # Save history (stream mode)
+        # FIX BUG-09: Dùng asyncio.shield() để background save task không bị cancel
         if self._history:
             await self._history.append(session_id, "user", req.message)
             await self._history.append(session_id, "assistant", response.answer)
-            asyncio.create_task(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id))
-            asyncio.create_task(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id))
+            asyncio.ensure_future(asyncio.shield(save_chat_message_async(session_id, "user", req.message, req.user_id, req.tenant_id)))
+            asyncio.ensure_future(asyncio.shield(save_chat_message_async(session_id, "assistant", response.answer, req.user_id, req.tenant_id)))
 
             ctx_to_save: dict = {}
             if response.project_name:

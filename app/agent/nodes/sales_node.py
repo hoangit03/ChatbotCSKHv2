@@ -20,16 +20,21 @@ log = get_logger(__name__)
 
 _BASE_SALES_PROMPT = """Bạn là chuyên viên tư vấn bất động sản.
 Nhiệm vụ của bạn là phân tích câu hỏi của khách hàng và gọi công cụ (tool) phù hợp nhất để lấy dữ liệu.
- 
-LƯU Ý QUAN TRỌNG VỀ TOOL:
-- Hỏi danh sách dự án / có những dự án nào: gọi `list_projects`.
-  + Nếu khách hỏi "đang mở bán", "đang bán", "hiện có": truyền status_filter="dang_mo_ban".
-  + Nếu khách hỏi "sắp mở bán", "sắp ra mắt": truyền status_filter="sap_mo_ban".
-  + Nếu khách hỏi tất cả dự án không phân biệt: KHÔNG truyền status_filter.
-- Hỏi dự án (cụ thể) còn căn trống không / có bao nhiêu căn: gọi `get_inventory`. TUYỆT ĐỐI KHÔNG gọi `list_projects` nếu khách đang hỏi về một dự án cụ thể.
-- Hỏi một căn cụ thể (VD: căn góc, mã căn T1-04): gọi `check_availability`.
-- Tìm căn theo tiêu chí (giá, số phòng): gọi `search_units`.
-- Nếu không cần truy vấn số liệu bán hàng, không gọi tool.
+
+NGUYÊN TẮC CHỌN TOOL:
+① Khách hỏi DANH SÁCH DỰ ÁN (liệt kê, kể tên, có những dự án nào...): gọi `list_projects`.
+   • Khách hỏi "đang mở bán", "đang bán", "hiện có", "đang kinh doanh": truyền status_filter="dang_mo_ban".
+   • Khách hỏi "sắp mở bán", "sắp ra mắt", "sắp tới": truyền status_filter="sap_mo_ban".
+   • Khách hỏi TẤT CẢ không phân biệt trạng thái: KHÔNG truyền status_filter.
+
+② Khách hỏi TỒN KHO của MỘT DỰ ÁN CỤ THỂ (còn bao nhiêu căn, còn trống không):
+   → gọi `get_inventory`. TUYỆT ĐỐI KHÔNG gọi `list_projects` khi khách đang hỏi dự án cụ thể.
+
+③ Khách hỏi MỘT CĂN CỤ THỂ theo mã căn (VD: T1-A14-03, căn góc tầng 5): gọi `check_availability`.
+
+④ Khách TÌM CĂN theo tiêu chí (số phòng, giá tối đa, tầng, hướng...): gọi `search_units`.
+
+⑤ Khách hỏi thông tin chung (tiện ích, pháp lý, vị trí...) mà KHÔNG cần số liệu real-time: KHÔNG gọi tool.
 """
  
 _STAGE_TOOL_GUIDANCE = {
@@ -59,9 +64,15 @@ CHIẾN LƯỢC: Xóa bỏ rủi ro, tạo sức ép khan hiếm.
 """,
 }
 
-
-# SALES_TOOLS_SCHEMA — giờ được auto-generate từ ToolRegistry.generate_schemas()
-# Xem base_tool.py:ToolRegistry.generate_schemas() và sales_tool.py:tool_schema property
+# System prompt riêng cho Sale nội bộ — không có price guard hay stage restriction.
+# Sale cần thấy đầy đủ thông tin để tư vấn khách hàng chính xác.
+_SALE_EXTRA_NOTE = """
+BẠN ĐANG TRẢ LỜI CHO NHÂN VIÊN SALE NỘI BỘ (không phải khách hàng).
+Yêu cầu: Cung cấp DỮ LIỆU ĐẦY ĐỦ, chính xác và trực tiếp. Không che giấu giá, không hạn chế thông tin.
+• Có thể tra cứu nhiều căn cùng lúc bằng nhiều tool call song song.
+• Báo giá chi tiết, số phòng, diện tích, tầng, hướng, chương trình ưu đãi.
+• Nếu sale hỏi nhiều mã căn (VD: A101 và B202), hãy gọi `check_availability` cho từng căn riêng biệt.
+"""
 
 class SalesNode:
     def __init__(self, registry: ToolRegistry, llm: ChatPort):
@@ -85,8 +96,10 @@ class SalesNode:
         if state.get("customer_phone"):
             state["sales_data"].setdefault("customer_phone", state["customer_phone"])
 
-        # ── 1. Inject USP theo stage vào context ─────────────────
-        self._inject_usps(state, stage)
+        # ── 1. Inject USP theo stage vào context (chỉ luồng khách hàng) ─────────────────
+        # Sale nội bộ không cần USP — họ cần raw data để tư vấn chính xác.
+        if user_type == "customer":
+            self._inject_usps(state, stage)
 
         # ── 2. Precompute query embedding (reuse giữa QATool và RAGTool) ─────────────────────────
         # Chỉ precompute khi cần doc tools (không phải Consultation)
@@ -102,13 +115,14 @@ class SalesNode:
         if intent != Intent.CONSULTATION_INTENT:
             await self._run_doc_tools(state)
 
-        # ── 4. Xử lý đặc biệt cho Comparison Intent ──────────────
-        # Comparison → force stage lên DECISION, load thêm USP pháp lý
-        if intent == Intent.COMPARISON_INTENT:
-            state["customer_stage"] = CustomerStage.DECISION
+        # ── 4. Comparison Intent: chỉ upgrade stage cho khách hàng ──────────────
+        # Sale hỏi so sánh → chỉ lấy data, không cần stage/USP manipulation.
+        if intent == Intent.COMPARISON_INTENT and user_type == "customer":
+            state["customer_stage"] = CustomerStage.DECISION.value
             stage = CustomerStage.DECISION
-            self._inject_usps(state, stage)  # Re-inject với stage mới
+            self._inject_usps(state, stage)
             log.info("comparison_intent_stage_upgraded", session=state.get("session_id"))
+
 
         # ── 5. Gọi LLM để quyết định gọi tool hay trả lời trực tiếp ──
         stage_guidance = _STAGE_TOOL_GUIDANCE.get(stage, "")
@@ -126,8 +140,9 @@ class SalesNode:
             )
             system_prompt = _BASE_SALES_PROMPT + stage_guidance + sale_only_note
         else:
+            # Sale nội bộ: đầy đủ tools, không có stage restriction về giá, có thêm note sale
             tools_schemas = self._registry.generate_schemas()
-            system_prompt = _BASE_SALES_PROMPT + stage_guidance
+            system_prompt = _BASE_SALES_PROMPT + _SALE_EXTRA_NOTE
  
         try:
             resp = await self._llm.chat(
@@ -143,8 +158,9 @@ class SalesNode:
             if not tool_calls and intent == Intent.CONSULTATION_INTENT:
                 tool_calls = [{"name": "register_consultation", "arguments": {}}]
 
-            # Price Guard: Giai đoạn 1 không tiết lộ giá chi tiết
-            if stage == CustomerStage.AWARENESS:
+            # Price Guard: chỉ áp dụng cho KHÁCH HÀNG ở giai đoạn AWARENESS
+            # Sale nội bộ luôn thấy giá đầy đủ để tư vấn chính xác.
+            if stage == CustomerStage.AWARENESS and user_type == "customer":
                 state["sales_data"]["price_disclosure_blocked"] = True
 
             # Bảo vệ thêm: lọc bỏ tool call trái phép cho customer (defense-in-depth)

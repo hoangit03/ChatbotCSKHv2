@@ -113,10 +113,14 @@ async def classify_intent(state: AgentState, llm: ChatPort, registry: ToolRegist
         )
         content = resp.content.strip()
         data = {}
+        # FIX BUG-12: Initialize defaults trước khi parse JSON để tránh NameError nếu parse fail
+        rewritten = clean
+        detected_project = ""
         try:
             data = json.loads(content)
         except Exception as parse_err:
-            log.warning("intent_json_parse_failed", error=str(parse_err), content=content)
+            log.warning("intent_json_parse_failed", error=str(parse_err), content=content[:100])
+            # data vẫn là {} — các giá trị default đã được set ở trên
             
         if not data:
             data["intent"] = "unknown"

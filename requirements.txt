@@ -56,9 +56,9 @@ tiktoken==0.7.0
 pytest==8.3.0
 pytest-asyncio==0.24.0
 pytest-mock==3.14.0
-httpx==0.27.0
+# httpx đã được khai báo ở trên (HTTP Client section)
 
 # ── Frontend ─────────────────────────────────────────────────────
 streamlit==1.38.0
 streamlit-extras==0.4.7
-asyncpg
+# asyncpg đã được pin version ở Storage/DB section (asyncpg==0.29.0)

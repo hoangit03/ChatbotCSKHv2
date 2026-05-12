@@ -59,7 +59,46 @@ async def _get_available_projects(registry: ToolRegistry) -> list[dict]:
     # Ưu tiên từ Sales API
     project_tool = registry.get("list_projects")
     if project_tool:
-        res = await project_tool.run({"raw_query": "", "project_name": "", "sales_data": {}})
+        # FIX BUG-06: Truyền AgentState-compatible dict đầy đủ các key bắt buộc
+        # ProjectListTool.run() cần: sales_data (dict), raw_query (str)
+        minimal_state = {
+            "raw_query": "",
+            "project_name": None,
+            "project_id": None,
+            "session_id": "__system__",
+            "sales_data": {},
+            "tool_kwargs": {},
+            "user_type": "sale",
+            "messages": [],
+            "intent": None,
+            "was_injected": False,
+            "rag_results": [],
+            "qa_result": None,
+            "qa_hit": False,
+            "query_embedding": None,
+            "final_answer": "",
+            "sources": [],
+            "tool_calls": [],
+            "fallback": False,
+            "fallback_reason": "",
+            "iteration": 0,
+            "error": None,
+            "project_newly_confirmed": False,
+            "customer_name": None,
+            "customer_phone": None,
+            "customer_stage": "awareness",
+            "stage_signals": [],
+            "usps_used": [],
+            "appointment_booked": False,
+            "scarcity_level": "none",
+            "cross_sell_suggestions": [],
+            "booking_confirmation": False,
+            "price_disclosed": False,
+            "suggested_questions": [],
+            "stream_queue": None,
+            "human_handover_requested": False,
+        }
+        res = await project_tool.run(minimal_state)
         if res.success and res.data:
             # data là list[dict] chứa 'id' và 'name'
             projects = res.data
@@ -89,44 +128,61 @@ def _query_hints_project_switch(query: str) -> bool:
 
 async def project_guard_node(state: AgentState, registry: ToolRegistry, llm: ChatPort) -> AgentState:
     """
-    Chạy sau classify_intent. 
-    Nhiệm vụ: 
-      - Đảm bảo dự án được xác định.
-      - KHÔNG chặn nếu khách hỏi câu hỏi chung khi đã có sẵn dự án trong session.
+    Chạy sau classify_intent.
+    Nhiệm vụ:
+      - Đảm bảo dự án được xác định trước khi xử lý các intent cần context dự án.
+      - KHÔNG chặn nếu intent là SALES_INQUIRY/CONSULTATION → để sales_node tự gọi đúng tool.
+      - Chỉ hỏi lại project khi intent là CUSTOMER_SUPPORT / COMPARISON / UNKNOWN.
     Tối ưu:
-      - Cache list_projects (TTL 5 phút)
+      - Cache list_projects (TTL 5 phút) — chỉ gọi khi thực sự cần kiểm tra.
     """
     cfg = get_settings()
     current_project = state.get("project_name")
-    query = state.get("raw_query", "")
+
+    from app.agent.state.agent_state import Intent
+    intent = state.get("intent")
+
+    # [BUG-04 FIX] Sale nội bộ → bypass hoàn toàn
+    # Sale cần truy vấn tự do (xem tất cả dự án, giá, tồn kho) mà không bị
+    # chặn hỏi "bạn quan tâm dự án nào?" — ConsultationTool tự slot-fill khi cần.
+    if state.get("user_type") == "sale":
+        log.info("project_guard_bypassed_for_sale", session=state.get("session_id"))
+        return state
 
     # [BYPASS] Chitchat → cho qua ngay
-    from app.agent.state.agent_state import Intent
-    if state.get("intent") == Intent.CHITCHAT:
+    if intent == Intent.CHITCHAT:
         log.info("project_guard_bypassed_for_chitchat", session=state.get("session_id"))
         return state
 
-    # ── 1. Lấy danh sách dự án (cached — TTL 5 phút) ──
+    # [BYPASS] SALES_INQUIRY → sales_node sẽ tự gọi list_projects / search_units / get_inventory
+    # với đúng filter. Guard không cần xen vào.
+    if intent == Intent.SALES_INQUIRY:
+        log.info("project_guard_bypassed_for_sales_inquiry", session=state.get("session_id"))
+        return state
+
+    # [BYPASS] CONSULTATION_INTENT → ConsultationTool tự xử lý slot-filling (hỏi dự án khi cần).
+    if intent == Intent.CONSULTATION_INTENT:
+        log.info("project_guard_bypassed_for_consultation", session=state.get("session_id"))
+        return state
+
+    # Từ đây chỉ còn: CUSTOMER_SUPPORT, COMPARISON_INTENT, UNKNOWN
+    # → các intent này CẦN project context để RAG/QA search đúng collection.
+
+    # Nếu đã có project hợp lệ trong session → cho qua
+    if current_project and current_project.lower() not in ["", "string", "none", "unknown"]:
+        return state
+
+    # ── Chưa có project: lấy danh sách và hỏi khách chọn ──
+    # Lấy danh sách dự án (cached — TTL 5 phút)
     available_projects = await _get_available_projects(registry)
 
-    # ── [BYPASS] Yêu cầu liệt kê dự án ──
-    if any(k in query.lower() for k in _PROJECT_LISTING_KEYWORDS):
-        log.info("project_guard_bypassed_for_listing", query=query)
+    if not available_projects:
+        state["final_answer"] = (
+            f"Chào bạn! Tôi là {cfg.bot_name}. Hiện tại tôi đang cập nhật dữ liệu. "
+            "Bạn vui lòng để lại thông tin để em hỗ trợ mình sau nhé!"
+        )
         return state
 
-    # ── 3. Kiểm tra nếu vẫn chưa có dự án nào ──
-    if not current_project or current_project.lower() in ["", "string", "none", "unknown"]:
-        projects = available_projects
-        if not projects:
-            state["final_answer"] = (
-                f"Chào bạn! Tôi là {cfg.bot_name}. Hiện tại tôi đang cập nhật dữ liệu. "
-                "Bạn vui lòng để lại thông tin để em hỗ trợ mình sau nhé!"
-            )
-            return state
-
-        project_list_str = ", ".join([p["name"] for p in projects])
-        state["final_answer"] = cfg.project_suggestion_prompt.format(projects=project_list_str)
-        log.info("project_guard_interruption", session=state.get("session_id"))
-        return state
-
+    state["final_answer"] = cfg.project_suggestion_prompt
+    log.info("project_guard_interruption", session=state.get("session_id"))
     return state

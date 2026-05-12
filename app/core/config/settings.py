@@ -96,12 +96,12 @@ class Settings(BaseSettings):
     rag_score_threshold: float = 0.70
     qa_score_threshold: float = 0.30   # multi-signal scoring (0.30 thay vì 0.45 của Jaccard)
 
-    # ── Q&A Auto-load (DEPRECATED - Moved to API) ─────────────────
-    # Prompt gợi ý dự án khi chưa xác định được
+    # Prompt hỏi dự án khi chưa xác định được — KHÔNG dump raw list tên dự án
+    # (Danh sách dự án sẽ được LLM format qua list_projects tool khi khách hỏi "liệt kê dự án")
     project_suggestion_prompt: str = (
-        "Chào bạn! Rất vui được hỗ trợ mình. Để em có thể cung cấp thông tin chính xác nhất "
-        "về bảng giá, pháp lý và ưu đãi, mình vui lòng cho biết đang quan tâm đến dự án nào ạ? "
-        "Hiện em đang có thông tin chi tiết về: {projects}."
+        "Chào bạn! Tôi là trợ lý tư vấn bất động sản của CT Group. "
+        "Bạn đang quan tâm đến dự án nào vậy ạ? "
+        "Bạn có thể cho em biết khu vực hoặc loại bất động sản mình đang tìm kiếm để em hỗ trợ chính xác hơn nhé."
     )
 
     # ── Sales API toggle ──────────────────────────────────────────
