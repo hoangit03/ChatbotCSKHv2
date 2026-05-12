@@ -7,7 +7,7 @@
       </div>
       
       <!-- Role selector specifically for primer-diamond -->
-      <div v-if="props.tenant === 'primer-diamond'" class="ml-auto role-selector">
+      <div v-if="(props.tenant || '').toLowerCase().replace('_', '-') === 'primer-diamond'" class="ml-auto role-selector">
         <div class="custom-select-wrapper">
           <select v-model="chatRole" class="glass-input custom-select">
             <option value="user">Tư vấn khách hàng</option>
