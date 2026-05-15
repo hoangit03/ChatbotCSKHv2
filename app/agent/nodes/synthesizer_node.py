@@ -265,6 +265,22 @@ class SynthesizerNode:
                     "mời khách đến xem sa bàn/nhà mẫu để có báo giá chính xác kèm quà tặng."
                 )
 
+            # [NEW] Xây dựng Sale Mode Note riêng để chèn đúng vị trí
+            sale_mode_note = ""
+            if state.get("user_type") == "sale":
+                sale_mode_note = (
+                    "\n\n=======================================================\n"
+                    "CHẾ ĐỘ ĐẶC BIỆT: BẠN ĐANG PHỤC VỤ NHÂN VIÊN SALE NỘI BỘ\n"
+                    "=======================================================\n"
+                    "Người đang chat với bạn là chuyên viên kinh doanh/sale nội bộ của công ty, KHÔNG PHẢI KHÁCH HÀNG.\n"
+                    "Do đó, BẮT BUỘC áp dụng các nguyên tắc TỐI CAO sau (ghi đè mọi nguyên tắc bên trên):\n"
+                    "1. TOÀN QUYỀN THÔNG TIN: Cung cấp TOÀN BỘ thông tin chi tiết, đầy đủ nhất về căn hộ, dự án, so sánh, chính sách, v.v. có trong Context.\n"
+                    "2. KHÔNG GIỚI HẠN ĐỘ DÀI: Bỏ qua giới hạn 120 từ. Trình bày rõ ràng, chi tiết, chuyên nghiệp các thông số (giá, diện tích, tầng, hướng, mã căn, chính sách bán hàng) để sale có đủ dữ liệu tư vấn khách.\n"
+                    "3. HIỂN THỊ CẢ CĂN ĐÃ BÁN: Nếu sale tra cứu căn đã bán (Sold), BẮT BUỘC hiển thị TOÀN BỘ thông tin chi tiết của căn đó (giá, diện tích, v.v.) kèm ghi chú là căn đã bán. KHÔNG ĐƯỢC dùng câu trả lời rút gọn chặn thông tin.\n"
+                    "4. KHÔNG MỜI CHÀO/BOOKING LÝ THUYẾT: Bỏ qua các yêu cầu mời khách đặt cọc, giữ chỗ hay để lại thông tin liên hệ. Tập trung hoàn toàn vào việc cung cấp số liệu và so sánh chuyên sâu một cách trực quan, minh bạch.\n"
+                    "5. XỬ LÝ KHI THIẾU DỮ LIỆU: Nếu Context trống hoặc không tìm thấy thông tin dự án, hãy thông báo thẳng thắn cho Sale biết là 'Hiện em chưa tìm thấy dữ liệu về dự án này trong hệ thống, anh/chị vui lòng kiểm tra lại tên dự án nhé'. TUYỆT ĐỐI KHÔNG dùng câu 'liên hệ bộ phận sale'."
+                )
+
             if state.get("stream_queue"):
                 import asyncio
                 queue: asyncio.Queue = state["stream_queue"]
@@ -273,9 +289,11 @@ class SynthesizerNode:
                 async def _gen_suggestions():
                     try:
                         sug_prompt = "Dựa trên ngữ cảnh và câu hỏi, hãy gợi ý 2 câu hỏi tiếp theo khách hàng có thể hỏi. Format JSON: {\"suggested_questions\": [\"cau 1\", \"cau 2\"]}"
+                        # Đối với suggestions vẫn dùng full system_msg (có json format)
+                        full_sys_msg = system_msg + sale_mode_note
                         resp = await self._llm.chat(
                             messages=[LLMMessage(role="user", content=prompt + "\n\n" + sug_prompt)],
-                            system=system_msg,
+                            system=full_sys_msg,
                             response_format={"type": "json_object"}
                         )
                         _, sug = _parse_llm_output(resp.content)
@@ -283,8 +301,14 @@ class SynthesizerNode:
                     except Exception:
                         return []
                 
-                # Đổi prompt để LLM chỉ trả lời văn bản thuần (tránh xuất json)
-                system_msg_stream = system_msg.split("ĐỊNH DẠNG ĐẦU RA")[0] + "ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC:\nTUYỆT ĐỐI KHÔNG TRẢ VỀ JSON. Trả lời bằng văn bản thuần túy."
+                # FIX BUG-PROMPT-STRIP: Chèn sale_mode_note TRƯỚC phần format
+                system_msg_parts = system_msg.split("ĐỊNH DẠNG ĐẦU RA")
+                system_msg_stream = system_msg_parts[0] 
+                system_msg_stream += sale_mode_note
+                system_msg_stream += "\n\nĐỊNH DẠNG ĐẦU RA" + system_msg_parts[1]
+                
+                # Ghi đè chỉ dẫn format cho stream mode
+                system_msg_stream = system_msg_stream.split("Trả về JSON với 2 trường sau")[0] + "TUYỆT ĐỐI KHÔNG TRẢ VỀ JSON. Trả lời bằng văn bản thuần túy."
                 
                 answer_chunks = []
                 try:
@@ -312,12 +336,13 @@ class SynthesizerNode:
                 
                 duration_ms = int((time.monotonic() - t0) * 1000)
             else:
-                # Normal JSON non-stream mode
+                # Normal JSON non-stream mode — ghép note vào cuối
+                full_sys_msg = system_msg + sale_mode_note
                 try:
                     resp = await asyncio.wait_for(
                         self._llm.chat(
                             messages=[LLMMessage(role="user", content=prompt)],
-                            system=system_msg,
+                            system=full_sys_msg,
                             response_format={"type": "json_object"}
                         ),
                         timeout=30.0,

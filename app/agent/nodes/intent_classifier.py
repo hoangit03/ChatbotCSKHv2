@@ -136,12 +136,22 @@ async def classify_intent(state: AgentState, llm: ChatPort, registry: ToolRegist
             
         # Cập nhật project_name nếu tìm thấy
         current_project = state.get("project_name")
-        if detected_project and detected_project in [p["name"] for p in available_projects]:
-            p_id = next((p["id"] for p in available_projects if p["name"] == detected_project), "unknown")
-            if current_project != detected_project:
-                log.info("project_context_switched_at_intent", old=current_project, new=detected_project, id=p_id)
-                state["project_name"] = detected_project
-                state["project_id"] = p_id
+        # [IMPROVED MATCHING] Tìm dự án trong danh sách
+        if detected_project:
+            # 1. Thử exact match trước
+            match = next((p for p in available_projects if p["name"].lower() == detected_project.lower()), None)
+            
+            # 2. Nếu không khớp, thử substring match (linh hoạt cho viết tắt/thiếu chữ)
+            if not match:
+                match = next((p for p in available_projects if detected_project.lower() in p["name"].lower() or p["name"].lower() in detected_project.lower()), None)
+
+            if match:
+                target_project = match["name"]
+                p_id = match["id"]
+                if current_project != target_project:
+                    log.info("project_context_switched_at_intent", old=current_project, new=target_project, id=p_id)
+                    state["project_name"] = target_project
+                    state["project_id"] = p_id
                 state["project_newly_confirmed"] = True
                 current_project = detected_project
             else:
@@ -185,6 +195,16 @@ def route_by_intent(state: AgentState) -> str:
     LangGraph gọi function này để quyết định branch.
     """
     intent = state.get("intent", Intent.UNKNOWN)
+    user_type = state.get("user_type", "customer")
+
+    if intent == Intent.CHITCHAT:
+        return "synthesizer"       # Chitchat → trả lời ngay
+
+    # Luồng Sale nội bộ: luôn điều hướng sang sales_node để có toàn quyền
+    # tra cứu giỏ hàng, bảng hàng, tìm kiếm, xem chi tiết căn hộ qua tool calling.
+    # Trong sales_node vẫn tự động tra cứu tài liệu (RAG + QA).
+    if user_type == "sale":
+        return "sales_node"
 
     if intent == Intent.CONSULTATION_INTENT:
         return "sales_node"        # Tư vấn → sales
@@ -194,6 +214,4 @@ def route_by_intent(state: AgentState) -> str:
         return "sales_node"         # So sánh dự án → sales (USP Giai đoạn 3)
     if intent == Intent.CUSTOMER_SUPPORT:
         return "support_node"      # Hỏi thông tin dự án → RAG + QA
-    if intent == Intent.CHITCHAT:
-        return "synthesizer"       # Chitchat → trả lời ngay
     return "support_node"          # Unknown → thử support trước

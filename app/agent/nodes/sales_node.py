@@ -69,9 +69,11 @@ CHIẾN LƯỢC: Xóa bỏ rủi ro, tạo sức ép khan hiếm.
 _SALE_EXTRA_NOTE = """
 BẠN ĐANG TRẢ LỜI CHO NHÂN VIÊN SALE NỘI BỘ (không phải khách hàng).
 Yêu cầu: Cung cấp DỮ LIỆU ĐẦY ĐỦ, chính xác và trực tiếp. Không che giấu giá, không hạn chế thông tin.
-• Có thể tra cứu nhiều căn cùng lúc bằng nhiều tool call song song.
-• Báo giá chi tiết, số phòng, diện tích, tầng, hướng, chương trình ưu đãi.
-• Nếu sale hỏi nhiều mã căn (VD: A101 và B202), hãy gọi `check_availability` cho từng căn riêng biệt.
+1. LUÔN ƯU TIÊN gọi các tool tra cứu (get_inventory, search_units, check_availability) nếu khách hỏi về sản phẩm/giá/tồn kho.
+2. Nếu khách nhắc đến một tên dự án (kể cả viết tắt như 'metro', 'diamond'), hãy cố gắng suy luận và gọi tool cho dự án đó.
+3. TUYỆT ĐỐI KHÔNG trả lời 'liên hệ bộ phận sale' vì chính người đang chat là Sale. Nếu thiếu dữ liệu, hãy báo rõ 'Hệ thống chưa có dữ liệu cho yêu cầu này'.
+4. Báo giá chi tiết, số phòng, diện tích, tầng, hướng, chương trình ưu đãi.
+5. Nếu sale hỏi nhiều mã căn (VD: A101 và B202), hãy gọi `check_availability` cho từng căn riêng biệt.
 """
 
 class SalesNode:
