@@ -100,20 +100,12 @@ async def sale_chat(
     request: Request,
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
-    x_role_level: Optional[str] = Header("2"),   # Default 2 = sale
     x_session_id: Optional[str] = Header(None),
     x_project_name: Optional[str] = Header(None),
 ) -> SaleChatOut:
-    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    uc = request.app.state.handle_sale_uc
 
-    # Ưu tiên session_id từ Header (do Gateway proxy xuống)
-    final_session_id = x_session_id or body.session_id
-
-    # Đảm bảo role_level >= 2 để luôn là "sale"
-    role_level = x_role_level if x_role_level else "2"
-    if role_level.isdigit() and int(role_level) < 2:
-        role_level = "2"
-
+    final_session_id   = x_session_id or body.session_id
     final_project_name = x_project_name or body.project_name
 
     chat_req = ChatRequest(
@@ -124,7 +116,6 @@ async def sale_chat(
         customer_phone=body.customer_phone,
         user_id=x_user_id,
         tenant_id=x_tenant_id,
-        role_level=role_level,  # >= 2 → user_type = "sale"
     )
 
     try:
@@ -183,18 +174,12 @@ async def sale_chat_stream(
     request: Request,
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
-    x_role_level: Optional[str] = Header("2"),
     x_session_id: Optional[str] = Header(None),
     x_project_name: Optional[str] = Header(None),
 ):
-    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    uc = request.app.state.handle_sale_uc
 
-    final_session_id = x_session_id or body.session_id
-
-    role_level = x_role_level if x_role_level else "2"
-    if role_level.isdigit() and int(role_level) < 2:
-        role_level = "2"
-
+    final_session_id   = x_session_id or body.session_id
     final_project_name = x_project_name or body.project_name
 
     chat_req = ChatRequest(
@@ -205,7 +190,6 @@ async def sale_chat_stream(
         customer_phone=body.customer_phone,
         user_id=x_user_id,
         tenant_id=x_tenant_id,
-        role_level=role_level,
     )
 
     return StreamingResponse(
@@ -213,6 +197,6 @@ async def sale_chat_stream(
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",   # Disable Nginx buffering
+            "X-Accel-Buffering": "no",
         },
     )

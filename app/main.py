@@ -109,71 +109,100 @@ async def lifespan(app: FastAPI):
     )
     app.state.qa_store = qa_store
 
-    # ── 8. Tool Registry (Inject vdb để hỗ trợ Project Guard) ─────
+    # ── 8. Tool Registries — TÁCH ĐÔI: Customer vs Sale ──────────
     from app.agent.tools.base_tool import ToolRegistry
     from app.agent.tools.qa_tool import QATool
     from app.agent.tools.rag_tool import RAGTool
-    # ...
-    registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
 
-    from app.agent.tools.sales_tool import (
-        AvailabilityTool,
-        InventoryTool,
-        UnitSearchTool,
-        ProjectListTool,
-        ConsultationTool,
-    )
-
-    registry.register(QATool(store=qa_store))
-   # threshold đã cấu hình trong QAVectorStore
-    registry.register(RAGTool(
+    _qa_tool  = QATool(store=qa_store)
+    _rag_tool = RAGTool(
         vector_db=vector_db,
         embedder=embedder,
         score_threshold=cfg.rag_score_threshold,
         top_k=5,
-    ))
+    )
 
-    # Chỉ đăng ký Sales tools khi API được cấu hình thực tế
-    # (tránh timeout 10s/call khi Sales API chưa sẵn sàng)
+    # Customer Registry — chỉ có RAG, QA, list_projects, register_consultation
+    customer_registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
+    customer_registry.register(_qa_tool)
+    customer_registry.register(_rag_tool)
+
+    # Sale Registry — toàn bộ tools
+    sale_registry = ToolRegistry(vdb=vector_db, redis_pool=redis_pool)
+    sale_registry.register(_qa_tool)
+    sale_registry.register(_rag_tool)
+
     if cfg.sales_api_configured:
-        registry.register(AvailabilityTool(api=sales_api))
-        registry.register(InventoryTool(api=sales_api))
-        registry.register(UnitSearchTool(api=sales_api))
-        registry.register(ProjectListTool(api=sales_api))
-        registry.register(ConsultationTool(api=sales_api))
+        from app.agent.tools.sales_tool import (
+            AvailabilityTool, InventoryTool, UnitSearchTool,
+            ProjectListTool, ConsultationTool,
+        )
+        _project_tool      = ProjectListTool(api=sales_api)
+        _consultation_tool = ConsultationTool(api=sales_api)
+
+        # Customer: chỉ list_projects + register_consultation
+        customer_registry.register(_project_tool)
+        customer_registry.register(_consultation_tool)
+
+        # Sale: tất cả tools
+        sale_registry.register(AvailabilityTool(api=sales_api))
+        sale_registry.register(InventoryTool(api=sales_api))
+        sale_registry.register(UnitSearchTool(api=sales_api))
+        sale_registry.register(_project_tool)
+        sale_registry.register(_consultation_tool)
         log.info("sales_tools_registered")
     else:
         log.warning(
             "sales_tools_disabled",
-            reason="SALES_API_BASE_URL is placeholder or SALES_API_ENABLED=false",
-            note="Cấu hình SALES_API_BASE_URL + SALES_API_KEY trong .env khi có API backend",
+            reason="SALES_API_BASE_URL chưa cấu hình",
+            note="Cấu hình SALES_API_BASE_URL + SALES_API_KEY trong .env",
         )
 
-    log.info("tools_registered", tools=registry.names())
+    log.info(
+        "tool_registries_ready",
+        customer=customer_registry.names(),
+        sale=sale_registry.names(),
+    )
 
-    # ── 9. Agent graph ────────────────────────────────────────────
-    from app.agent.graph.agent_graph import build_agent_graph
-    agent_graph = build_agent_graph(
+    # ── 9. Agent Graphs ───────────────────────────────────────────
+    from app.agent.graph.agent_graph import build_customer_graph
+    from app.agent.graph.sale_graph import build_sale_graph
+
+    customer_graph = build_customer_graph(
         llm=llm,
-        tool_registry=registry,
+        tool_registry=customer_registry,
+        max_iterations=cfg.agent_max_iterations,
+    )
+    sale_graph = build_sale_graph(
+        llm=llm,
+        tool_registry=sale_registry,
         max_iterations=cfg.agent_max_iterations,
     )
 
     # ── 10. Use Cases ─────────────────────────────────────────────
-    from app.application.usecases.handle_chat import HandleChatUseCase
+    from app.application.usecases.handle_chat import (
+        HandleCustomerChatUseCase,
+        HandleSaleChatUseCase,
+    )
     from app.infrastructure.cache.redis_history import RedisHistoryStore
     from app.shared.logging.user_activity_log import UserActivityLogger
 
-    history_store    = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
-    activity_logger  = UserActivityLogger(log_dir="./storage/logs")
+    history_store   = RedisHistoryStore(redis_pool=redis_pool, ttl=cfg.cache_ttl)
+    activity_logger = UserActivityLogger(log_dir="./storage/logs")
     log.info("user_activity_logger_ready", log_dir="./storage/logs")
 
-
-    app.state.handle_chat_uc = HandleChatUseCase(
-        agent_graph=agent_graph,
+    app.state.handle_customer_uc = HandleCustomerChatUseCase(
+        agent_graph=customer_graph,
         history_store=history_store,
         activity_logger=activity_logger,
     )
+    app.state.handle_sale_uc = HandleSaleChatUseCase(
+        agent_graph=sale_graph,
+        history_store=history_store,
+        activity_logger=None,  # Sale không cần audit log chi tiết
+    )
+    # Backward-compat alias (code cũ vẫn chạy)
+    app.state.handle_chat_uc = app.state.handle_customer_uc
 
 
     # ── 11. API Key Store ─────────────────────────────────────────

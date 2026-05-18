@@ -96,11 +96,10 @@ async def chat(
     request: Request,
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
-    x_role_level: Optional[str] = Header("1"),
     x_session_id: Optional[str] = Header(None),
     x_project_name: Optional[str] = Header(None)
 ) -> ChatOut:
-    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    uc: HandleChatUseCase = request.app.state.handle_customer_uc
     
     # Ưu tiên session_id từ Header (do Gateway proxy xuống)
     final_session_id = x_session_id or body.session_id
@@ -115,7 +114,6 @@ async def chat(
         customer_phone=body.customer_phone,
         user_id=x_user_id,
         tenant_id=x_tenant_id,
-        role_level=x_role_level
     )
 
     try:
@@ -172,11 +170,10 @@ async def chat_stream(
     request: Request,
     x_user_id: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
-    x_role_level: Optional[str] = Header("1"),
     x_session_id: Optional[str] = Header(None),
     x_project_name: Optional[str] = Header(None)
 ):
-    uc: HandleChatUseCase = request.app.state.handle_chat_uc
+    uc: HandleChatUseCase = request.app.state.handle_customer_uc
     
     final_session_id = x_session_id or body.session_id
 
@@ -190,7 +187,6 @@ async def chat_stream(
         customer_phone=body.customer_phone,
         user_id=x_user_id,
         tenant_id=x_tenant_id,
-        role_level=x_role_level
     )
 
     return StreamingResponse(
